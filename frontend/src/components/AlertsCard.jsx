@@ -43,7 +43,7 @@ const AlertsCard = ({ alerts = [] }) => {
               className={`p-4 rounded-lg border ${getAlertStyles(alert.type)}`}
             >
               <div className="flex gap-3">
-                <Icon className={`flex-shrink-0 ${getIconColor(alert.type)}`} size={20} />
+                <Icon className={`shrink-0 ${getIconColor(alert.type)}`} size={20} />
                 <div>
                   <h4 className="font-semibold text-sm mb-1">{alert.title}</h4>
                   <p className="text-xs leading-relaxed">{alert.message}</p>
