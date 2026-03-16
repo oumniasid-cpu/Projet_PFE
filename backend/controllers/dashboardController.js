@@ -1,96 +1,142 @@
 const pool = require('../db');
-// backend/controllers/dashboardController.js
 
-exports.getDashboardStats = async (req, res) => { /* ... */ }; // ✅ Doit exister
-exports.getBudgetHistory = async (req, res) => { /* ... */ };  // ✅ Doit exister
-exports.getProjects = async (req, res) => { /* ... */ };       // ✅ Doit exister
-exports.getGantt = async (req, res) => { /* ... */ };          // ✅ Doit exister
+
+// =============================
+// Dashboard Stats
+// =============================
 exports.getDashboardStats = async (req, res) => {
   try {
-    const userId = req.user.id; // On filtre par l'utilisateur connecté
 
-    // 1. Métriques globales (KPI)
-    const statsQuery = `
-      SELECT 
-        COUNT(*) FILTER (WHERE status IN ('active', 'on track')) as active_projects,
-        COALESCE(SUM(budget_total), 0) as total_budget,
-        COALESCE(AVG(progress), 0) as avg_progress,
-        COUNT(*) FILTER (WHERE status IN ('at risk', 'delayed')) as alerts_count
+    const activeProjects = await pool.query(
+      `SELECT COUNT(*) FROM projects WHERE status = 'active'`
+    );
+
+    const budget = await pool.query(
+      `SELECT 
+        COALESCE(SUM(budget_total),0) AS total_budget,
+        COALESCE(SUM(budget_spent),0) AS total_spent
+       FROM projects`
+    );
+
+    const avgProgress = await pool.query(
+      `SELECT ROUND(AVG(progress),0) AS avg_progress FROM projects`
+    );
+
+    const alerts = await pool.query(
+      `SELECT COUNT(*) 
+       FROM projects 
+       WHERE status IN ('at risk','delayed')`
+    );
+
+    const progressProjects = await pool.query(`
+      SELECT name, progress
       FROM projects
-      WHERE owner_id = $1;
-    `;
+      ORDER BY updated_at DESC
+      LIMIT 4
+    `);
 
-    // 2. Évolution du budget (Données pour le graphique AreaChart)
-    const budgetTrendQuery = `
-      SELECT 
-        TO_CHAR(created_at, 'Mon') as month,
-        SUM(budget_total) as budget,
-        SUM(budget_spent) as spent,
-        DATE_TRUNC('month', created_at) as month_date
-      FROM projects
-      WHERE owner_id = $1
-      GROUP BY TO_CHAR(created_at, 'Mon'), DATE_TRUNC('month', created_at)
-      ORDER BY month_date ASC
-      LIMIT 6;
-    `;
-
-    // 3. Progrès individuel (Top 4 projets récents)
-    const projectProgressQuery = `
-      SELECT name, progress, status 
-      FROM projects 
-      WHERE owner_id = $1
-      ORDER BY updated_at DESC 
-      LIMIT 4;
-    `;
-
-    const [statsResult, trendResult, progressResult] = await Promise.all([
-      pool.query(statsQuery, [userId]),
-      pool.query(budgetTrendQuery, [userId]),
-      pool.query(projectProgressQuery, [userId])
-    ]);
-
-    res.status(200).json({
+    res.json({
       metrics: {
-        active_projects: parseInt(statsResult.rows[0].active_projects),
-        total_budget: parseFloat(statsResult.rows[0].total_budget),
-        avg_progress: Math.round(parseFloat(statsResult.rows[0].avg_progress)),
-        alerts: parseInt(statsResult.rows[0].alerts_count)
+        active_projects: parseInt(activeProjects.rows[0].count),
+        total_budget: parseFloat(budget.rows[0].total_budget),
+        total_spent: parseFloat(budget.rows[0].total_spent),
+        avg_progress: parseInt(avgProgress.rows[0].avg_progress),
+        alerts: parseInt(alerts.rows[0].count)
       },
-      budgetHistory: trendResult.rows.map(row => ({
-        month: row.month,
-        budget: parseFloat(row.budget),
-        spent: parseFloat(row.spent)
-      })),
-      individualProgress: progressResult.rows.map(row => ({
-        name: row.name,
-        progress: parseInt(row.progress),
-        status: row.status
-      }))
+      individualProgress: progressProjects.rows
     });
 
-  } catch (err) {
-    console.error('[getDashboardStats Error]:', err);
-    res.status(500).json({ message: 'Erreur serveur lors du calcul des statistiques' });
+  } catch (error) {
+    console.error("Stats error:", error);
+    res.status(500).json({ message: "Server error" });
   }
 };
 
 
-//gantt chart back part:)
-// Récupérer les données pour le Gantt d'un projet spécifique
-exports.getGanttData = async (req, res) => {
-  const { projectId } = req.params;
+
+/* =============================
+   Budget History Chart
+   ============================= */
+
+exports.getBudgetHistory = async (req, res) => {
   try {
-    // Ici, on récupère soit les tâches du projet, soit le projet lui-même
-    // Si vous avez une table 'tasks', remplacez la requête.
-    const query = `
-      SELECT id, name, start_date, end_date, progress, status 
-      FROM projects 
-      WHERE id = $1 OR parent_project_id = $1 
-      ORDER BY start_date ASC
-    `;
-    const result = await pool.query(query, [projectId]);
-    res.json(result.rows);
-  } catch (err) {
-    res.status(500).json({ error: "Erreur lors de la récupération du Gantt" });
+
+    const history = await pool.query(`
+      SELECT
+        TO_CHAR(created_at,'Mon') AS month,
+        SUM(budget_total) AS budget,
+        SUM(budget_spent) AS spent
+      FROM projects
+      GROUP BY month
+      ORDER BY MIN(created_at)
+    `);
+
+    res.json(history.rows);
+
+  } catch (error) {
+    console.error("Budget history error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+
+
+/* =============================
+   Projects List
+   ============================= */
+
+exports.getProjects = async (req, res) => {
+  try {
+
+    const projects = await pool.query(`
+      SELECT
+        id,
+        name,
+        client_name AS client,
+        progress,
+        status,
+        budget_total,
+        budget_spent
+      FROM projects
+      ORDER BY created_at DESC
+      LIMIT 10
+    `);
+
+    res.json(projects.rows);
+
+  } catch (error) {
+    console.error("Projects error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+
+
+/* =============================
+   Gantt Chart Data
+   ============================= */
+
+exports.getGanttData = async (req, res) => {
+  try {
+
+    const { projectId } = req.params;
+
+    const tasks = await pool.query(`
+      SELECT
+        id,
+        title,
+        status,
+        start_date,
+        due_date
+      FROM tasks
+      WHERE project_id = $1
+      ORDER BY start_date
+    `, [projectId]);
+
+    res.json(tasks.rows);
+
+  } catch (error) {
+    console.error("Gantt error:", error);
+    res.status(500).json({ message: "Server error" });
   }
 };

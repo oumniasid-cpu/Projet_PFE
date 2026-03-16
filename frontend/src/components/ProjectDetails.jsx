@@ -79,6 +79,7 @@ export default function ProjectDetails({ projectId, onBack }) {
     { id: 'gantt', label: 'Gantt Planning', icon: Layers },
     { id: 'daily-reports', label: 'Daily Reports', icon: FileText },
     { id: 'alerts', label: 'AI Alerts', icon: AlertTriangle },
+    { id: 'documents', label: 'Documents', icon: FileText },
   ];
 
   return (

@@ -1,84 +1,87 @@
-require('dotenv').config();
+require("dotenv").config();
 
-const express = require('express');
-const cors = require('cors');
-const authRoutes = require('./routes/auth');
-const projectRoutes = require('./routes/projects');
-const dashboardRoutes = require('./routes/dashboard');
+const express = require("express");
+const cors = require("cors");
+
+// Routes
+const authRoutes = require("./routes/auth");
+const projectRoutes = require("./routes/projects");
+const dashboardRoutes = require("./routes/dashboard");
 
 const app = express();
 
-// --- MIDDLEWARES ---
+
+// ======================
+// GLOBAL MIDDLEWARES
+// ======================
+
 app.use(cors());
 app.use(express.json());
 
-// --- ROUTES PRINCIPALES ---
 
-// Route racine (Health Check)
-app.get('/', (req, res) => {
-  res.json({ 
-    message: 'BuildTrack API',
-    version: '1.0.0',
-    status: 'running',
-    database: 'PostgreSQL'
+// ======================
+// HEALTH CHECK
+// ======================
+
+app.get("/", (req, res) => {
+  res.json({
+    message: "BuildTrack API",
+    version: "1.0.0",
+    status: "running",
+    database: "PostgreSQL"
   });
 });
 
-// Montage des routes API
-app.use('/api/auth', authRoutes);
-app.use('/api/projects', projectRoutes);
-app.use('/api/dashboard', dashboardRoutes);
 
-// --- GESTION DES ERREURS ---
+// ======================
+// API ROUTES
+// ======================
 
-app.get("/api/projects/:id", async (req, res) => {
-  const id = req.params.id;
+app.use("/api/auth", authRoutes);
+app.use("/api/projects", projectRoutes);
+app.use("/api/dashboard", dashboardRoutes);
 
-  const result = await pool.query(
-    "SELECT * FROM projects WHERE id=$1",
-    [id]
-  );
 
-  res.json(result.rows[0]);
-});
-// Middleware 404 (Route non trouvée)
-app.use((req, res, next) => {
-  res.status(404).json({ message: "Route non trouvée" });
+// ======================
+// 404 HANDLER
+// ======================
+
+app.use((req, res) => {
+  res.status(404).json({
+    message: "Route non trouvée"
+  });
 });
 
-// Middleware d'erreur global (Capture les erreurs de vos routes)
+
+// ======================
+// GLOBAL ERROR HANDLER
+// ======================
+
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  console.error("Server error:", err);
+
   res.status(err.status || 500).json({
     message: err.message || "Erreur interne du serveur",
-    error: process.env.NODE_ENV === 'development' ? err : {}
+    error: process.env.NODE_ENV === "development" ? err : {}
   });
 });
 
 
+// ======================
+// SERVER START
+// ======================
 
-const projectsRoute = require('./routes/projects');
-
-
-
-app.use(cors());
-app.use(express.json());
-
-app.use('/api/projects', projectsRoute);
-
-
-
-// --- DÉMARRAGE DU SERVEUR ---
 const PORT = process.env.PORT || 5000;
+
 app.listen(PORT, () => {
   console.log(`
-  ╔═══════════════════════════════════════╗
-  ║   BuildTrack API Server Running       ║
-  ║   Port: ${PORT}                          ║
-  ║   Database: PostgreSQL                ║
-  ║   Env: ${process.env.NODE_ENV || 'dev'}    ║
-  ╚═══════════════════════════════════════╝
-  `);
+╔═══════════════════════════════════════╗
+║       BuildTrack API Running          ║
+║       Port: ${PORT}                     ║
+║       Database: PostgreSQL            ║
+║       Env: ${process.env.NODE_ENV || "dev"} ║
+╚═══════════════════════════════════════╝
+`);
 });
 
 module.exports = app;
