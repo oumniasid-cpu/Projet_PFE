@@ -7,6 +7,7 @@ import RegisterPage from "./pages/Register";
 import Project from "./pages/Projects";
 import UserManagement from "./AdminPages/UserManagement";
 import Settings from "./pages/Settings";
+import DailyReports from "./components/DailyReports";
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
         <Route path="/projects" element={<Project />} />
         <Route path="/usermanagement" element={<UserManagement />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/reports" element={<DailyReports />} />
       </Routes>
     </Router>
   );
