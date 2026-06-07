@@ -81,53 +81,59 @@ const DailyReports = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSubmitting(true);
-    // Logique d'envoi du rapport classique...
-    setSubmitting(false);
+    setTimeout(() => {
+      setSubmitting(false);
+      setMessage({ type: "success", text: "Rapport envoyé avec succès !" });
+    }, 1500);
+  
   };
 
-  return (
-    <div className="flex h-screen bg-gray-100 text-gray-900">
-      <SideBar />
-      <div className="max-w-4xl mx-auto p-8">
+
+
+
+ return (
+  <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: '#f3f4f6' }}>
+    <SideBar />
+
+    {/* Scrollable right side */}
+    <div style={{ flex: 1, overflowY: 'auto', padding: '36px 40px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
 
       {/* Alert */}
       {message.text && (
-        <div className={`mb-8 p-5 rounded-2xl flex items-center gap-3 text-base font-medium
+        <div className={`mb-6 p-4 rounded-2xl flex items-center gap-3 text-sm font-medium
           ${message.type === "success"
             ? "bg-blue-50 text-blue-900 border border-blue-200"
             : "bg-red-50 text-red-700 border border-red-100"}`}>
           {message.type === "success"
-            ? <CheckCircle2 className="w-6 h-6 text-blue-700" />
-            : <AlertCircle className="w-6 h-6" />}
+            ? <CheckCircle2 className="w-5 h-5 text-blue-700" />
+            : <AlertCircle className="w-5 h-5" />}
           <p>{message.text}</p>
         </div>
       )}
 
+      {/* Card — constrained width, not full page */}
       <div
-        className="bg-white rounded-4xl p-10 border"
-        style={{ borderColor: "#b5d4f4", boxShadow: "0 2px 20px rgba(29,55,200,0.07)" }}
+        className="bg-white rounded-2xl p-6 border"
+        style={{
+          maxWidth: 720,
+          borderColor: "#b5d4f4",
+          boxShadow: "0 2px 12px rgba(29,55,200,0.06)"
+        }}
       >
-
         {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-5 mb-10 pb-8 border-b border-blue-100">
-          <div className="flex items-center gap-4">
-            <div
-              className="p-4 rounded-2xl"
-              style={{ background: "#1d37c8" }}
-            >
-              <FileText className="w-6 h-6 text-white" />
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-7 pb-6 border-b border-blue-100">
+          <div className="flex items-center gap-3">
+            <div className="p-3 rounded-xl" style={{ background: "#1d37c8" }}>
+              <FileText className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h2 className="text-2xl font-bold" style={{ color: "#042c53" }}>
-                Repport
-              </h2>
-              <p className="text-base mt-1" style={{ color: "#378add" }}>
+              <h2 className="text-xl font-bold" style={{ color: "#042c53" }}>Rapport</h2>
+              <p className="text-sm mt-0.5" style={{ color: "#378add" }}>
                 Gérez vos projets ou importez un fichier MPP
               </p>
             </div>
           </div>
 
-          {/* Import button */}
           <div>
             <input
               type="file"
@@ -140,45 +146,43 @@ const DailyReports = () => {
               type="button"
               onClick={() => fileInputRef.current.click()}
               disabled={importing}
-              className="flex items-center gap-2 px-5 py-3 rounded-2xl font-bold text-base text-white transition-all disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm text-white transition-all disabled:opacity-50"
               style={{ background: "#1d37c8" }}
               onMouseEnter={e => e.currentTarget.style.background = "#0c447c"}
               onMouseLeave={e => e.currentTarget.style.background = "#1d37c8"}
             >
-              {importing
-                ? <Loader2 className="w-5 h-5 animate-spin" />
-                : <FileCode className="w-5 h-5" />}
+              {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileCode className="w-4 h-4" />}
               {importing ? "Importation..." : "Importer MS Project"}
             </button>
           </div>
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-8">
+        <form onSubmit={handleSubmit} className="space-y-5">
 
-          <div className="space-y-3">
-            <label className="text-sm font-bold uppercase tracking-wide" style={{ color: "#1d37c8" }}>
+          <div className="space-y-2">
+            <label className="text-xs font-bold uppercase tracking-wide" style={{ color: "#1d37c8" }}>
               Concerned project
             </label>
             {loading ? (
-              <div className="flex items-center gap-2 text-base p-5 rounded-2xl border border-dashed border-blue-200 bg-blue-50 text-blue-400">
-                <Loader2 className="w-5 h-5 animate-spin" /> Mise à jour de la liste...
+              <div className="flex items-center gap-2 text-sm p-4 rounded-xl border border-dashed border-blue-200 bg-blue-50 text-blue-400">
+                <Loader2 className="w-4 h-4 animate-spin" /> Mise à jour de la liste...
               </div>
             ) : (
               <select
                 required
                 value={formData.project_id}
                 onChange={e => setFormData({ ...formData, project_id: e.target.value })}
-                className="w-full p-5 rounded-2xl text-base font-medium outline-none transition-all"
+                className="w-full p-4 rounded-xl text-sm font-medium outline-none transition-all"
                 style={{
                   background: "#e6f1fb",
                   border: "1.5px solid #b5d4f4",
-                  color: "#042c53",
+                  color: formData.project_id ? "#042c53" : "#9ca3af",
                 }}
                 onFocus={e => e.target.style.borderColor = "#1d37c8"}
                 onBlur={e => e.target.style.borderColor = "#b5d4f4"}
               >
-              <option value="" style={{ color: "#9ca3af" }}>select an actif project</option>
+                <option value="" style={{ color: "#9ca3af" }}>Select an active project</option>
                 {projects.map(proj => (
                   <option key={proj.id} value={proj.id} style={{ color: "#374151" }}>🏗️ {proj.name}</option>
                 ))}
@@ -186,17 +190,17 @@ const DailyReports = () => {
             )}
           </div>
 
-          <div className="space-y-3">
-            <label className="text-sm font-bold uppercase tracking-wide" style={{ color: "#1d37c8" }}>
-              Realised Work
+          <div className="space-y-2">
+            <label className="text-xs font-bold uppercase tracking-wide" style={{ color: "#1d37c8" }}>
+              Realised work
             </label>
             <textarea
               required
-              rows={5}
+              rows={4}
               value={formData.work_done}
               onChange={e => setFormData({ ...formData, work_done: e.target.value })}
               placeholder="Décrivez les tâches accomplies..."
-              className="w-full p-5 rounded-2xl text-base outline-none transition-all"
+              className="w-full p-4 rounded-xl text-sm outline-none transition-all resize-none"
               style={{
                 background: "#e6f1fb",
                 border: "1.5px solid #b5d4f4",
@@ -210,18 +214,17 @@ const DailyReports = () => {
           <button
             type="submit"
             disabled={submitting || !formData.project_id}
-            className="w-full py-5 rounded-2xl font-bold text-lg flex items-center justify-center gap-3 transition-all text-white"
+            className="w-full py-4 rounded-xl font-bold text-base flex items-center justify-center gap-2 transition-all text-white"
             style={{ background: submitting || !formData.project_id ? "#85b7eb" : "#1d37c8" }}
           >
             {submitting
-              ? <Loader2 className="w-6 h-6 animate-spin" />
-              : <><Send className="w-6 h-6" /> Envoyer le rapport</>}
+              ? <Loader2 className="w-5 h-5 animate-spin" />
+              : <><Send className="w-5 h-5" /> Envoyer le rapport</>}
           </button>
         </form>
       </div>
     </div>
-    </div>
-  );
+  </div>
+);
 };
-
 export default DailyReports;

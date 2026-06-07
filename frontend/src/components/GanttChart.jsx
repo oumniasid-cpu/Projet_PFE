@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from "react";
 
 const GanttChart = ({ projectId }) => {
-  const [projects, setProjects] = useState([]);
+  const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [rawData, setRawData] = useState(null); // for debugging
 
-  // --- CHARGEMENT DES DONNÉES RÉELLES ---
   useEffect(() => {
     const fetchGanttData = async () => {
       try {
@@ -13,114 +13,179 @@ const GanttChart = ({ projectId }) => {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await response.json();
-        setProjects(Array.isArray(data) ? data : [data]); // On s'assure que c'est un tableau
+
+        // ── DEBUG: log exactly what the API returns
+        console.log("🔍 RAW GANTT DATA:", JSON.stringify(data, null, 2));
+        setRawData(data);
+
+        const arr = Array.isArray(data) ? data : [data];
+
+        // ── NORMALIZE: handle any field name the API might use
+        const normalized = arr.map(t => ({
+          id:         t.id         ?? t._id        ?? Math.random(),
+          name:       t.name       ?? t.task_name  ?? t.title      ?? t.label ?? 'Unnamed task',
+          progress:   t.progress   ?? t.completion ?? t.percent    ?? 0,
+          start_date: t.start_date ?? t.startDate  ?? t.start      ?? t.date_debut ?? null,
+          end_date:   t.end_date   ?? t.endDate    ?? t.end        ?? t.date_fin   ?? null,
+          status:     t.status     ?? null,
+        }));
+
+        console.log("✅ NORMALIZED TASKS:", normalized);
+        setTasks(normalized);
       } catch (error) {
         console.error("Erreur Gantt:", error);
       } finally {
         setLoading(false);
       }
     };
-
     if (projectId) fetchGanttData();
   }, [projectId]);
 
-  if (loading) return <div className="p-6 text-center text-gray-500">Chargement du diagramme...</div>;
+  if (loading) return (
+    <div style={{ padding: 40, textAlign: 'center', color: '#378add' }}>
+      Chargement du diagramme…
+    </div>
+  );
 
-  if (!projects || projects.length === 0) {
-    return (
-      <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-        <h3 className="text-lg font-semibold text-gray-900 mb-6">Diagramme de Gantt</h3>
-        <div className="text-center py-12 text-gray-500">
-          <p>Aucune donnée de planification disponible</p>
-        </div>
-      </div>
-    );
+  // ── FILTER VALID TASKS ──────────────────────────────────
+  const validTasks = tasks.filter(t => {
+    const s = new Date(t.start_date);
+    const e = new Date(t.end_date);
+    const valid = !isNaN(s.getTime()) && !isNaN(e.getTime());
+    if (!valid) console.warn("⚠️ Invalid date for task:", t);
+    return valid;
+  });
+
+  // ── DEBUG VIEW: show raw data in UI so you can see it
+  if (validTasks.length === 0) return (
+    <div style={{ padding: 24, background: '#fff', borderRadius: 16, border: '1px solid #b5d4f4' }}>
+      <p style={{ fontWeight: 700, color: '#b91c1c', marginBottom: 12 }}>
+        ⚠️ Dates invalides — voici les données brutes reçues de l'API :
+      </p>
+      <pre style={{
+        background: '#f8fafc', border: '1px solid #e2e8f0',
+        borderRadius: 8, padding: 16,
+        fontSize: 12, color: '#334155',
+        overflowX: 'auto', maxHeight: 300,
+        whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+      }}>
+        {JSON.stringify(rawData, null, 2)}
+      </pre>
+      <p style={{ marginTop: 12, fontSize: 13, color: '#6b7280' }}>
+        Vérifiez les noms des champs de date dans votre API (ex: <code>start_date</code>, <code>startDate</code>, <code>date_debut</code>…)
+      </p>
+    </div>
+  );
+
+  // ── BUILD MONTH RANGE ───────────────────────────────────
+  const allDates   = validTasks.flatMap(t => [new Date(t.start_date), new Date(t.end_date)]);
+  const minDate    = new Date(Math.min(...allDates.map(d => d.getTime())));
+  const maxDate    = new Date(Math.max(...allDates.map(d => d.getTime())));
+  const viewStart  = new Date(minDate.getFullYear(), minDate.getMonth() - 1, 1);
+  const viewEnd    = new Date(maxDate.getFullYear(), maxDate.getMonth() + 2, 1);
+  const totalDays  = (viewEnd - viewStart) / 864e5;
+
+  const months = [];
+  const cursor = new Date(viewStart);
+  while (cursor < viewEnd) {
+    months.push(new Date(cursor));
+    cursor.setMonth(cursor.getMonth() + 1);
   }
 
-  // --- LOGIQUE DE GÉNÉRATION DU CALENDRIER ---
-  const generateMonths = () => {
-    const months = [];
-    const now = new Date();
-    // On centre la vue sur le début du projet
-    const startView = new Date(projects[0].start_date);
-    
-    for (let i = -1; i <= 6; i++) {
-      const date = new Date(startView.getFullYear(), startView.getMonth() + i, 1);
-      months.push({
-        name: date.toLocaleDateString("fr-FR", { month: "short", year: "2-digit" }),
-        fullDate: date,
-      });
-    }
-    return months;
+  const getPct      = (date) => Math.max(0, Math.min(100, ((new Date(date) - viewStart) / 864e5 / totalDays) * 100));
+  const getWidthPct = (s, e)  => Math.max(1,  ((Math.min(new Date(e), viewEnd) - Math.max(new Date(s), viewStart)) / 864e5 / totalDays) * 100);
+  const formatDate  = (d)     => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  const formatMonth = (d)     => d.toLocaleDateString('en-GB', { month: 'short', year: '2-digit' });
+
+  const getBarStyle = (p) => {
+    if (p >= 100) return { background: '#86efac', border: '1px solid #4ade80' };
+    if (p > 0)    return { background: '#93c5fd', border: '1px solid #60a5fa' };
+    return               { background: '#94a3b8', border: '1px solid #64748b' };
   };
 
-  const months = generateMonths();
-  const monthWidth = 100 / months.length;
-
-  const getProjectPosition = (project) => {
-    const startDate = new Date(project.start_date);
-    const endDate = new Date(project.end_date);
-    const firstMonthView = months[0].fullDate;
-
-    // Calcul de la position en pourcentage
-    const diffMonthsStart = (startDate.getFullYear() - firstMonthView.getFullYear()) * 12 + (startDate.getMonth() - firstMonthView.getMonth());
-    const durationMonths = (endDate.getFullYear() - startDate.getFullYear()) * 12 + (endDate.getMonth() - startDate.getMonth()) + 1;
-
-    return {
-      left: Math.max(0, diffMonthsStart * monthWidth),
-      width: Math.max(5, durationMonths * monthWidth), // Minimum 5% de largeur pour la visibilité
-    };
-  };
-
-  // ... (Gardez vos fonctions getProjectColor et getStatusLabel identiques)
+  const legend = [
+    { label: 'Completed',   bg: '#86efac', border: '#4ade80' },
+    { label: 'In Progress', bg: '#93c5fd', border: '#60a5fa' },
+    { label: 'Pending',     bg: '#94a3b8', border: '#64748b' },
+    { label: 'Delayed',     bg: '#fca5a5', border: '#f87171' },
+  ];
 
   return (
-    <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
-      <h3 className="text-lg font-bold text-gray-800 mb-6">Planification Temporelle</h3>
-      
-      <div className="overflow-x-auto">
-        <div className="min-w-200">
-          {/* Header des mois */}
-          <div className="flex border-b border-gray-100 mb-4">
-            <div className="w-48 shrink-0 font-bold text-xs text-gray-400 uppercase">Phase / Projet</div>
-            <div className="flex-1 flex">
-              {months.map((m, i) => (
-                <div key={i} style={{ width: `${monthWidth}%` }} className="text-center text-xs font-bold text-gray-400 uppercase">
-                  {m.name}
-                </div>
-              ))}
-            </div>
-          </div>
+    <div style={{ background: '#fff', borderRadius: 20, border: '0.5px solid #b5d4f4', padding: '24px 28px', overflowX: 'auto' }}>
 
-          {/* Lignes du Gantt */}
-          <div className="space-y-4">
-            {projects.map((p) => {
-              const pos = getProjectPosition(p);
-              return (
-                <div key={p.id} className="flex items-center group">
-                  <div className="w-48 shrink-0 pr-4">
-                    <div className="text-sm font-bold text-gray-700 truncate">{p.name}</div>
-                    <div className="text-[10px] text-gray-400">{p.progress}% complété</div>
-                  </div>
-                  
-                  <div className="flex-1 relative h-10 bg-gray-50/50 rounded-lg">
-                    {/* Barres de progression */}
-                    <div
-                      className={`absolute top-2 h-6 rounded-full shadow-sm transition-all duration-500 flex items-center px-3 ${
-                        p.progress >= 100 ? 'bg-green-500' : 'bg-blue-600'
-                      }`}
-                      style={{ left: `${pos.left}%`, width: `${pos.width}%` }}
-                    >
-                      <span className="text-[9px] text-white font-bold truncate">
-                        {p.progress}%
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+      <div style={{ marginBottom: 16 }}>
+        <h3 style={{ fontSize: 18, fontWeight: 700, color: '#111827', marginBottom: 2 }}>Project Timeline</h3>
+        <p style={{ fontSize: 13, color: '#6b7280' }}>Gantt chart view of project milestones</p>
+      </div>
+
+      <div style={{ display: 'flex', gap: 20, marginBottom: 20, flexWrap: 'wrap' }}>
+        {legend.map(l => (
+          <span key={l.label} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#374151' }}>
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: l.bg, border: `1.5px solid ${l.border}`, display: 'inline-block' }} />
+            {l.label}
+          </span>
+        ))}
+      </div>
+
+      <div style={{ minWidth: 700 }}>
+        {/* Month headers */}
+        <div style={{ display: 'flex', marginBottom: 8, paddingLeft: 220 }}>
+          {months.map((m, i) => (
+            <div key={i} style={{ width: `${100 / months.length}%`, fontSize: 11, fontWeight: 600, color: '#6b7280', textAlign: 'center', flexShrink: 0 }}>
+              {formatMonth(m)}
+            </div>
+          ))}
         </div>
+
+        <div style={{ height: 1, background: '#e5e7eb', marginBottom: 12 }} />
+
+        {/* Rows */}
+        {validTasks.map((task, i) => {
+          const p         = task.progress ?? 0;
+          const leftPct   = getPct(task.start_date);
+          const widthPct  = getWidthPct(task.start_date, task.end_date);
+          const barStyle  = getBarStyle(p);
+
+          return (
+            <div key={task.id ?? i} style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid #f3f4f6', padding: '10px 0' }}>
+              
+              {/* Name */}
+              <div style={{ width: 220, flexShrink: 0, paddingRight: 16 }}>
+                <p style={{ fontSize: 13, fontWeight: 700, color: '#111827', marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {task.name}
+                </p>
+                <p style={{ fontSize: 11, color: '#9ca3af' }}>{p}% complete</p>
+              </div>
+
+              {/* Bar */}
+              <div style={{ flex: 1, position: 'relative', height: 36 }}>
+                {months.map((_, mi) => (
+                  <div key={mi} style={{ position: 'absolute', left: `${(mi / months.length) * 100}%`, top: 0, bottom: 0, width: 1, background: '#f3f4f6' }} />
+                ))}
+                <div style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', left: 0, right: 0, height: 1, background: '#e5e7eb' }} />
+                <div
+                  style={{
+                    position: 'absolute', top: '50%', transform: 'translateY(-50%)',
+                    left: `${leftPct}%`, width: `${widthPct}%`,
+                    height: 28, borderRadius: 6,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 11, fontWeight: 700, color: '#374151',
+                    overflow: 'hidden', cursor: 'default',
+                    ...barStyle,
+                  }}
+                  title={`${task.name}: ${formatDate(task.start_date)} → ${formatDate(task.end_date)}`}
+                >
+                  {p >= 100 ? '✓' : `${p}%`}
+                </div>
+              </div>
+
+              {/* Date range */}
+              <div style={{ width: 120, flexShrink: 0, paddingLeft: 12, fontSize: 11, color: '#6b7280', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                {formatDate(task.start_date)} – {formatDate(task.end_date)}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

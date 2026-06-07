@@ -32,7 +32,7 @@ const SideBar = () => {
   ];
 
   return (
-    <aside className="w-64 h-screen bg-[#0D1B3E] flex flex-col p-4 shadow-xl text-white">
+    <aside className="w-64 h-screen bg-[#0D1B3E] flex flex-col p-4 shadow-xl text-white"   style={{ position: 'sticky', top: 0, height: '100vh', overflowY: 'auto', flexShrink: 0, }}>
       {/* Logo */}
       <div className="flex items-center justify-between mb-10 px-2">
         <div className="bg-[#1d37c8] p-1.5 rounded-lg">
