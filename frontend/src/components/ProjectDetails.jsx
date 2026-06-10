@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import {
   ArrowLeft, Calendar, Users, Clock,
   Layers, Wallet, FileText, AlertTriangle,
-  Plus, ChevronRight, BarChart2, Target, TrendingDown, CalendarDays
+  Plus, ChevronRight, BarChart2, Target, TrendingDown, CalendarDays,
+  Upload, Search, FileCheck, Map, ClipboardList, MoreHorizontal
 } from 'lucide-react';
 import GanttChart from '../components/GanttChart';
 import Sidebar from '../components/Sidebar';
@@ -23,20 +24,20 @@ ChartJS.register(
 
 // ── THEME ──────────────────────────────────────────────────
 const C = {
-  primary : '#1d37c8',
-  mid     : '#378add',
-  light   : '#85b7eb',
-  lighter : '#b5d4f4',
-  pale    : '#e6f1fb',
-  dark    : '#042c53',
-  deep    : '#0c447c',
-  medium  : '#185fa5',
+  primary: '#1d37c8',
+  mid: '#378add',
+  light: '#85b7eb',
+  lighter: '#b5d4f4',
+  pale: '#e6f1fb',
+  dark: '#042c53',
+  deep: '#0c447c',
+  medium: '#185fa5',
 };
 
 // ── SHARED AXIS STYLE ──────────────────────────────────────
 const axis = {
-  ticks : { color: C.mid, font: { size: 11 } },
-  grid  : { color: 'rgba(55,138,221,0.1)' },
+  ticks: { color: C.mid, font: { size: 11 } },
+  grid: { color: 'rgba(55,138,221,0.1)' },
   border: { display: false },
 };
 
@@ -110,15 +111,13 @@ const AnalyticsTab = () => {
     labels: ['Downtown', 'Harbor', 'Riverside', 'Tech'],
     datasets: [
       { label: 'Estimated', data: [12, 28, 8, 45], backgroundColor: C.primary, borderRadius: 6, barPercentage: 0.45 },
-      { label: 'Actual',    data: [7,  17, 4, 33], backgroundColor: C.light,   borderRadius: 6, barPercentage: 0.45 },
+      { label: 'Actual', data: [7, 17, 4, 33], backgroundColor: C.light, borderRadius: 6, barPercentage: 0.45 },
     ],
   };
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-
-        {/* Donut */}
         <div style={card}>
           <p style={{ fontWeight: 700, fontSize: 14, color: C.dark }}>Project status</p>
           <p style={{ fontSize: 12, color: C.mid, marginBottom: 16 }}>Distribution by status</p>
@@ -130,7 +129,7 @@ const AnalyticsTab = () => {
               }} />
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {[[C.primary,'On Track','2'],[C.mid,'At Risk','1'],[C.light,'Delayed','1'],[C.lighter,'Completed','1']].map(([color,label,count]) => (
+              {[[C.primary, 'On Track', '2'], [C.mid, 'At Risk', '1'], [C.light, 'Delayed', '1'], [C.lighter, 'Completed', '1']].map(([color, label, count]) => (
                 <span key={label} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: C.medium }}>
                   <span style={{ width: 10, height: 10, borderRadius: 2, background: color, flexShrink: 0, display: 'inline-block' }} />
                   {label}
@@ -141,7 +140,6 @@ const AnalyticsTab = () => {
           </div>
         </div>
 
-        {/* Line */}
         <div style={card}>
           <p style={{ fontWeight: 700, fontSize: 14, color: C.dark }}>Progress vs. target</p>
           <p style={{ fontSize: 12, color: C.mid, marginBottom: 16 }}>Monthly achievement comparison</p>
@@ -159,7 +157,6 @@ const AnalyticsTab = () => {
         </div>
       </div>
 
-      {/* Bar */}
       <div style={card}>
         <p style={{ fontWeight: 700, fontSize: 14, color: C.dark }}>Budget by project</p>
         <p style={{ fontSize: 12, color: C.mid, marginBottom: 16 }}>Estimated vs. actual spend comparison</p>
@@ -176,11 +173,10 @@ const AnalyticsTab = () => {
         <ChartLegend items={[{ color: C.primary, label: 'Estimated' }, { color: C.light, label: 'Actual' }]} />
       </div>
 
-      {/* Stat cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <StatCard icon={Target}       label="On-time rate"      value="87%"  desc="Projects meeting deadlines" />
-        <StatCard icon={TrendingDown} label="Budget variance"   value="-12%" desc="Average under budget" />
-        <StatCard icon={CalendarDays} label="Reports generated" value="342"  desc="This quarter" />
+        <StatCard icon={Target} label="On-time rate" value="87%" desc="Projects meeting deadlines" />
+        <StatCard icon={TrendingDown} label="Budget variance" value="-12%" desc="Average under budget" />
+        <StatCard icon={CalendarDays} label="Reports generated" value="342" desc="This quarter" />
       </div>
     </div>
   );
@@ -219,12 +215,239 @@ const BudgetPlaceholder = ({ project }) => {
   );
 };
 
+// ── DOCUMENTS TAB ──────────────────────────────────────────
+const DOC_CATEGORIES = ['All', 'Contract', 'Blueprint', 'Permit', 'Report', 'Other'];
+
+const categoryStyle = (type) => {
+  const map = {
+    Contract: { icon: FileCheck, color: '#1d37c8', bg: '#e6f1fb' },
+    Blueprint: { icon: Map, color: '#0891b2', bg: '#e0f2fe' },
+    Permit: { icon: ClipboardList, color: '#d97706', bg: '#fef3c7' },
+    Report: { icon: FileText, color: '#16a34a', bg: '#dcfce7' },
+    Other: { icon: FileText, color: '#6b7280', bg: '#f3f4f6' },
+  };
+  return map[type] || map['Other'];
+};
+
+const formatSize = (bytes) => {
+  if (!bytes) return '—';
+  if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  return (bytes / 1024).toFixed(0) + ' KB';
+};
+
+const DocumentsTab = ({ projectId }) => {
+  const [docs, setDocs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [activeFilter, setActiveFilter] = useState('All');
+  const [search, setSearch] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef(null);
+
+  const loadDocs = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`http://localhost:5000/api/documents/project/${projectId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) setDocs(await res.json());
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  }, [projectId]);
+
+  useEffect(() => { loadDocs(); }, [loadDocs]);
+
+  const handleUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const form = new FormData();
+      form.append('file', file);
+      form.append('project_id', projectId);
+      const name = file.name.toLowerCase();
+      const cat = name.includes('contract') ? 'Contract'
+        : name.includes('plan') || name.includes('blueprint') ? 'Blueprint'
+          : name.includes('permit') ? 'Permit'
+            : name.includes('report') ? 'Report'
+              : 'Other';
+      form.append('category', cat);
+      form.append('name', file.name.replace(/\.[^.]+$/, ''));
+      await fetch('http://localhost:5000/api/documents/upload', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      });
+      await loadDocs();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setUploading(false);
+      e.target.value = '';
+    }
+  };
+
+  const visible = docs.filter(d => {
+    const matchCat = activeFilter === 'All' || d.category === activeFilter;
+    const matchSearch = d.name?.toLowerCase().includes(search.toLowerCase());
+    return matchCat && matchSearch;
+  });
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+        <div>
+          <h3 style={{ fontSize: 18, fontWeight: 700, color: '#111827', marginBottom: 2 }}>Documents</h3>
+          <p style={{ fontSize: 13, color: '#6b7280' }}>Contracts, blueprints, permits, and reports</p>
+        </div>
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            background: C.primary, color: '#fff',
+            padding: '10px 20px', borderRadius: 12,
+            fontSize: 13, fontWeight: 700, border: 'none', cursor: 'pointer',
+            opacity: uploading ? 0.7 : 1,
+          }}
+        >
+          <Upload size={15} />
+          {uploading ? 'Uploading…' : 'Upload Document'}
+        </button>
+        <input ref={fileInputRef} type="file" style={{ display: 'none' }} onChange={handleUpload} />
+      </div>
+
+      {/* Search */}
+      <div style={{ position: 'relative', marginBottom: 16 }}>
+        <Search size={15} color="#9ca3af" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search documents…"
+          style={{
+            width: '100%', boxSizing: 'border-box',
+            padding: '11px 16px 11px 40px',
+            borderRadius: 12, border: `1px solid ${C.lighter}`,
+            fontSize: 13, color: '#111827', background: '#fff',
+            outline: 'none',
+          }}
+          onFocus={e => e.target.style.borderColor = C.mid}
+          onBlur={e => e.target.style.borderColor = C.lighter}
+        />
+      </div>
+
+      {/* Category chips */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 24, flexWrap: 'wrap' }}>
+        {DOC_CATEGORIES.map(cat => (
+          <button
+            key={cat}
+            onClick={() => setActiveFilter(cat)}
+            style={{
+              padding: '6px 16px', borderRadius: 999,
+              fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              border: 'none', transition: 'all .15s',
+              background: activeFilter === cat ? C.dark : '#e5e7eb',
+              color: activeFilter === cat ? '#fff' : '#374151',
+            }}
+          >
+            {cat}
+          </button>
+        ))}
+      </div>
+
+      {/* Content */}
+      {loading ? (
+        <p style={{ color: '#9ca3af', fontSize: 14, textAlign: 'center', padding: 40 }}>Loading documents…</p>
+      ) : visible.length === 0 ? (
+        <div style={{
+          padding: 56, background: '#fff', borderRadius: 24,
+          border: `1px solid ${C.lighter}`, textAlign: 'center',
+        }}>
+          <FileText size={44} color={C.lighter} style={{ margin: '0 auto 14px' }} />
+          <p style={{ color: '#9ca3af', fontSize: 14, fontWeight: 500 }}>No documents found.</p>
+          <p style={{ color: '#d1d5db', fontSize: 13, marginTop: 4 }}>Upload your first document using the button above.</p>
+        </div>
+      ) : (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+          gap: 16,
+        }}>
+          {visible.map(doc => {
+            const { icon: Icon, color, bg } = categoryStyle(doc.category);
+            return (
+              <div
+                key={doc.id}
+                style={{
+                  background: '#fff', borderRadius: 20,
+                  border: `1px solid ${C.lighter}`, padding: 20,
+                  display: 'flex', flexDirection: 'column', gap: 12,
+                  cursor: 'pointer', transition: 'border-color .15s, box-shadow .15s',
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.borderColor = C.mid;
+                  e.currentTarget.style.boxShadow = '0 4px 16px rgba(55,138,221,0.10)';
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.borderColor = C.lighter;
+                  e.currentTarget.style.boxShadow = 'none';
+                }}
+              >
+                {/* Icon + menu */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div style={{
+                    width: 40, height: 40, borderRadius: 10,
+                    background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <Icon size={18} color={color} />
+                  </div>
+                  <button
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 6 }}
+                    onClick={e => e.stopPropagation()}
+                  >
+                    <MoreHorizontal size={16} color="#9ca3af" />
+                  </button>
+                </div>
+
+                {/* Name + meta */}
+                <div>
+                  <p style={{ fontWeight: 700, fontSize: 14, color: '#111827', marginBottom: 3 }}>{doc.name}</p>
+                  <p style={{ fontSize: 12, color: '#9ca3af' }}>
+                    {doc.category}&nbsp;•&nbsp;{formatSize(doc.file_size)}
+                  </p>
+                </div>
+
+                {/* Footer */}
+                <div style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  paddingTop: 10, borderTop: `1px solid ${C.pale}`,
+                }}>
+                  <span style={{ fontSize: 11, color: '#9ca3af' }}>{doc.uploaded_by || '—'}</span>
+                  <span style={{ fontSize: 11, color: '#9ca3af' }}>
+                    {doc.created_at
+                      ? new Date(doc.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+                      : '—'}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ── MAIN ───────────────────────────────────────────────────
 export default function ProjectDetails({ projectId, onBack }) {
   const [activeTab, setActiveTab] = useState('analytics');
-  const [project,   setProject]   = useState(null);
-  const [reports,   setReports]   = useState([]);
-  const [loading,   setLoading]   = useState(true);
+  const [project, setProject] = useState(null);
+  const [reports, setReports] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const load = async () => {
@@ -272,24 +495,21 @@ export default function ProjectDetails({ projectId, onBack }) {
   const budgetPercent = (project.budget_spent / project.budget_total) * 100;
 
   const tabs = [
-    { id: 'analytics',     label: 'Analytics',      icon: BarChart2 },
-    { id: 'budget',        label: 'Budget tracking', icon: Wallet },
-    { id: 'gantt',         label: 'Gantt planning',  icon: Layers },
-    { id: 'daily-reports', label: 'Daily reports',   icon: FileText },
-    { id: 'alerts',        label: 'AI alerts',       icon: AlertTriangle },
-    { id: 'documents',     label: 'Documents',       icon: FileText },
+    { id: 'analytics', label: 'Analytics', icon: BarChart2 },
+    { id: 'budget', label: 'Budget tracking', icon: Wallet },
+    { id: 'gantt', label: 'Gantt planning', icon: Layers },
+    { id: 'daily-reports', label: 'Daily reports', icon: FileText },
+    { id: 'alerts', label: 'AI alerts', icon: AlertTriangle },
+    { id: 'documents', label: 'Documents', icon: FileText },
   ];
 
   return (
-    // ── ROOT: sidebar + scrollable main ───────────────────
     <div style={{ display: 'flex', minHeight: '100vh', background: '#f3f4f6' }}>
-
       <Sidebar />
 
-      {/* ── SCROLLABLE CONTENT AREA ─────────────────────── */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '36px 40px' }}>
 
-        {/* Back button */}
+        {/* Back */}
         <button
           onClick={onBack}
           style={{
@@ -304,35 +524,25 @@ export default function ProjectDetails({ projectId, onBack }) {
           <ArrowLeft size={16} /> Back to dashboard
         </button>
 
-        {/* ── PAGE TITLE ROW ─────────────────────────────── */}
+        {/* Title row */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28 }}>
           <div>
-            <h1 style={{ fontSize: 26, fontWeight: 700, color: '#111827', marginBottom: 4 }}>
-              {project.name}
-            </h1>
+            <h1 style={{ fontSize: 26, fontWeight: 700, color: '#111827', marginBottom: 4 }}>{project.name}</h1>
             <p style={{ fontSize: 14, color: '#6b7280' }}>{project.description}</p>
           </div>
           <span style={{
             padding: '5px 14px', borderRadius: 999,
-            fontSize: 11, fontWeight: 700,
-            textTransform: 'uppercase', letterSpacing: '0.08em',
-            background: C.pale, color: C.primary,
-            border: `1px solid ${C.lighter}`,
+            fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em',
+            background: C.pale, color: C.primary, border: `1px solid ${C.lighter}`,
             whiteSpace: 'nowrap', marginTop: 4,
           }}>
             {project.status}
           </span>
         </div>
 
-        {/* ── STAT CARDS ROW ─────────────────────────────── */}
+        {/* Stat cards */}
         <div style={{ display: 'flex', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>
-          {/* Start date */}
-          <div style={{
-            flex: 1, minWidth: 180,
-            background: '#fff', borderRadius: 20,
-            border: `1px solid ${C.lighter}`, padding: '18px 22px',
-            display: 'flex', alignItems: 'center', gap: 14,
-          }}>
+          <div style={{ flex: 1, minWidth: 180, background: '#fff', borderRadius: 20, border: `1px solid ${C.lighter}`, padding: '18px 22px', display: 'flex', alignItems: 'center', gap: 14 }}>
             <div style={{ width: 44, height: 44, borderRadius: 12, background: C.pale, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               <Calendar size={20} color={C.primary} />
             </div>
@@ -342,13 +552,7 @@ export default function ProjectDetails({ projectId, onBack }) {
             </div>
           </div>
 
-          {/* Manager */}
-          <div style={{
-            flex: 1, minWidth: 180,
-            background: '#fff', borderRadius: 20,
-            border: `1px solid ${C.lighter}`, padding: '18px 22px',
-            display: 'flex', alignItems: 'center', gap: 14,
-          }}>
+          <div style={{ flex: 1, minWidth: 180, background: '#fff', borderRadius: 20, border: `1px solid ${C.lighter}`, padding: '18px 22px', display: 'flex', alignItems: 'center', gap: 14 }}>
             <div style={{ width: 44, height: 44, borderRadius: 12, background: C.pale, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               <Users size={20} color={C.primary} />
             </div>
@@ -358,13 +562,7 @@ export default function ProjectDetails({ projectId, onBack }) {
             </div>
           </div>
 
-          {/* Progress */}
-          <div style={{
-            flex: 1, minWidth: 180,
-            background: '#fff', borderRadius: 20,
-            border: `1px solid ${C.lighter}`, padding: '18px 22px',
-            display: 'flex', alignItems: 'center', gap: 14,
-          }}>
+          <div style={{ flex: 1, minWidth: 180, background: '#fff', borderRadius: 20, border: `1px solid ${C.lighter}`, padding: '18px 22px', display: 'flex', alignItems: 'center', gap: 14 }}>
             <div style={{ width: 44, height: 44, borderRadius: 12, background: C.pale, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               <Clock size={20} color={C.primary} />
             </div>
@@ -377,12 +575,7 @@ export default function ProjectDetails({ projectId, onBack }) {
             </div>
           </div>
 
-          {/* Budget widget */}
-          <div style={{
-            flex: 1, minWidth: 200,
-            background: C.pale, borderRadius: 20,
-            border: `1px solid ${C.lighter}`, padding: '18px 22px',
-          }}>
+          <div style={{ flex: 1, minWidth: 200, background: C.pale, borderRadius: 20, border: `1px solid ${C.lighter}`, padding: '18px 22px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: C.medium, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Budget used</span>
               <span style={{ fontSize: 12, fontWeight: 700, color: C.primary }}>{budgetPercent.toFixed(1)}%</span>
@@ -402,12 +595,11 @@ export default function ProjectDetails({ projectId, onBack }) {
           </div>
         </div>
 
-        {/* ── TAB NAVIGATION ─────────────────────────────── */}
+        {/* Tabs */}
         <div style={{
           display: 'flex', flexWrap: 'wrap', gap: 4,
           padding: 4, background: '#e5e7eb',
-          borderRadius: 16, width: 'fit-content',
-          marginBottom: 24,
+          borderRadius: 16, width: 'fit-content', marginBottom: 24,
         }}>
           {tabs.map(tab => (
             <button
@@ -419,7 +611,7 @@ export default function ProjectDetails({ projectId, onBack }) {
                 fontSize: 13, fontWeight: 600,
                 border: 'none', cursor: 'pointer', transition: 'all .15s',
                 background: activeTab === tab.id ? C.primary : 'transparent',
-                color:      activeTab === tab.id ? '#fff'     : '#6b7280',
+                color: activeTab === tab.id ? '#fff' : '#6b7280',
               }}
             >
               <tab.icon size={14} />
@@ -428,15 +620,15 @@ export default function ProjectDetails({ projectId, onBack }) {
           ))}
         </div>
 
-        {/* ── TAB CONTENT ────────────────────────────────── */}
+        {/* Tab content */}
         <motion.div
           key={activeTab}
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.22 }}
         >
-          {activeTab === 'analytics'     && <AnalyticsTab />}
-          {activeTab === 'budget'        && <BudgetPlaceholder project={project} />}
+          {activeTab === 'analytics' && <AnalyticsTab />}
+          {activeTab === 'budget' && <BudgetPlaceholder project={project} />}
 
           {activeTab === 'gantt' && (
             <div style={{ background: '#fff', padding: 28, borderRadius: 24, border: `0.5px solid ${C.lighter}` }}>
@@ -510,12 +702,7 @@ export default function ProjectDetails({ projectId, onBack }) {
             </div>
           )}
 
-          {activeTab === 'documents' && (
-            <div style={{ padding: 56, background: '#fff', borderRadius: 24, border: `1px solid ${C.lighter}`, textAlign: 'center' }}>
-              <FileText size={44} color={C.lighter} style={{ margin: '0 auto 14px' }} />
-              <p style={{ color: '#9ca3af', fontStyle: 'italic', fontSize: 14 }}>No documents uploaded yet.</p>
-            </div>
-          )}
+          {activeTab === 'documents' && <DocumentsTab projectId={projectId} />}
         </motion.div>
       </div>
     </div>
