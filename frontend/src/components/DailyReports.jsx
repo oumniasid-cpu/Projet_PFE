@@ -1,9 +1,27 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   FileText, Send, AlertCircle, CheckCircle2, 
-  Loader2, Upload, FileCode 
+  Loader2, ListChecks, ChevronDown, ClipboardList
 } from 'lucide-react';
 import SideBar from './SideBar';
+
+const taskCategories = ['Toutes', 'Analyse', 'Documents', 'Travaux', 'Controle', 'Autres'];
+
+const getTaskCategory = (task) => {
+  const text = `${task.name || ''} ${task.notes || ''}`.toLowerCase();
+  if (text.includes('analyse') || text.includes('analysis') || text.includes('etude') || text.includes('study')) return 'Analyse';
+  if (text.includes('document') || text.includes('rapport') || text.includes('report') || text.includes('plan')) return 'Documents';
+  if (text.includes('controle') || text.includes('contrôle') || text.includes('check') || text.includes('inspection')) return 'Controle';
+  if (text.includes('travaux') || text.includes('work') || text.includes('chantier') || text.includes('construction')) return 'Travaux';
+  return 'Autres';
+};
+
+const statusLabels = {
+  not_started: 'Non demarree',
+  in_progress: 'En cours',
+  done: 'Terminee',
+  delayed: 'En retard',
+};
 
 const DailyReports = () => {
   const [projects, setProjects] = useState([]);
@@ -142,18 +160,7 @@ const DailyReports = () => {
               onChange={handleImportMSProject}
               className="hidden"
             />
-            <button
-              type="button"
-              onClick={() => fileInputRef.current.click()}
-              disabled={importing}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm text-white transition-all disabled:opacity-50"
-              style={{ background: "#1d37c8" }}
-              onMouseEnter={e => e.currentTarget.style.background = "#0c447c"}
-              onMouseLeave={e => e.currentTarget.style.background = "#1d37c8"}
-            >
-              {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileCode className="w-4 h-4" />}
-              {importing ? "Importation..." : "Importer MS Project"}
-            </button>
+            
           </div>
         </div>
 

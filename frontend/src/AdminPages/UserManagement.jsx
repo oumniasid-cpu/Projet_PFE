@@ -15,10 +15,10 @@ import SideBar from '../components/SideBar';
 import NewUser from '../components/newUser'; 
 
 const mockUsers = [
-  { id: '1', name: 'Alex Thompson', email: 'alex.t@company.com', role: 'engineer', status: 'active', projects: 4 },
-  { id: '2', name: 'Sarah Mitchell', email: 'sarah.m@company.com', role: 'engineer', status: 'active', projects: 3 },
-  { id: '3', name: 'Emily Chen', email: 'emily.c@client.com', role: 'customer', status: 'active', projects: 1 },
-  { id: '4', name: 'Jennifer Lopez', email: 'jennifer.l@company.com', role: 'engineer', status: 'inactive', projects: 0 },
+  { id: '1', name: 'Moustapha', email: 'moustapha@gmail.com', role: 'engineer', status: 'active', projects: 4 },
+  { id: '2', name: 'Said', email: 'saidm@gmail.com', role: 'engineer', status: 'active', projects: 3 },
+  { id: '3', name: 'sarah', email: 'sarah@gmail.com', role: 'customer', status: 'active', projects: 1 },
+  { id: '4', name: 'Eline', email: 'Elinel@gmail.com', role: 'engineer', status: 'inactive', projects: 0 },
 ];
 
 export default function UserManagement() {

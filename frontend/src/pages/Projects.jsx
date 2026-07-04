@@ -7,6 +7,7 @@ import { useEffect, useState, useRef } from 'react';
 import SideBar from '../components/SideBar';
 import { NewProject, ImportExcelModal, ImportMSProjectModal } from '../components/newProject';
 import ProjectDetails from '../components/ProjectDetails';
+import ImportModal from '../components/ImportModal';
 
 const Projects = () => {
   const [projects, setProjects] = useState([]);
@@ -18,6 +19,7 @@ const Projects = () => {
   const [modalManual, setModalManual] = useState(false);
   const [modalExcel, setModalExcel] = useState(false);
   const [modalMSProject, setModalMSProject] = useState(false);
+  const [modalImport, setModalImport] = useState(false);
 
   // Dropdown
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -111,6 +113,14 @@ const Projects = () => {
                   className="pl-9 pr-4 py-2 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 w-64 bg-white"
                 />
               </div>
+
+              <button
+                onClick={() => setModalImport(true)}
+                className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors"
+              >
+                <FileSpreadsheet className="w-4 h-4" />
+                Importer un projet
+              </button>
 
               {/* ── DROPDOWN BUTTON ── */}
               <div className="relative" ref={dropdownRef}>
@@ -271,6 +281,7 @@ const Projects = () => {
       <NewProject open={modalManual} onOpenChange={setModalManual} onProjectCreated={handleProjectCreated} />
       <ImportExcelModal open={modalExcel} onOpenChange={setModalExcel} onProjectCreated={handleProjectCreated} />
       <ImportMSProjectModal open={modalMSProject} onOpenChange={setModalMSProject} onProjectCreated={handleProjectCreated} />
+      <ImportModal open={modalImport} onOpenChange={setModalImport} onImported={fetchProjects} />
     </div>
   );
 };

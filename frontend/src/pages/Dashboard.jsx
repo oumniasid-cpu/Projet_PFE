@@ -21,6 +21,7 @@ import {
   Bar,
 } from 'recharts';
 import SideBar from '../components/SideBar';
+import ProjectDetails from '../components/ProjectDetails';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const API_BASE = 'http://localhost:5000/api/dashboard';
@@ -66,6 +67,7 @@ const Dashboard = () => {
   const [stats,         setStats]         = useState(null);   // /stats
   const [budgetHistory, setBudgetHistory] = useState([]);     // /budget-history
   const [projects,      setProjects]      = useState([]);     // /projects
+  const [selectedProjectId, setSelectedProjectId] = useState(null);
   const [ganttProjectId]                  = useState(null);   // /gantt/:id — set when user opens a project
 
   const [loading, setLoading] = useState(true);
@@ -165,6 +167,10 @@ const Dashboard = () => {
     ? ((metrics.total_budget - metrics.total_spent) / metrics.total_budget) * 100
     : 0;
   const isUnderBudget = budgetHealth >= 0;
+
+  if (selectedProjectId) {
+    return <ProjectDetails projectId={selectedProjectId} onBack={() => setSelectedProjectId(null)} />;
+  }
 
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
@@ -390,10 +396,11 @@ const Dashboard = () => {
                   const statusStyle  = getStatus(project.status);
 
                   return (
-                    <Link
+                    <button
                       key={project.id}
-                      to={`/projects/${project.id}`}
-                      className="flex items-center gap-4 px-6 py-4 hover:bg-gray-50 transition-colors"
+                      type="button"
+                      onClick={() => setSelectedProjectId(project.id)}
+                      className="w-full text-left flex items-center gap-4 px-6 py-4 hover:bg-gray-50 transition-colors"
                     >
                       {/* Name + client */}
                       <div className="flex-1 min-w-0">
@@ -434,7 +441,7 @@ const Dashboard = () => {
                       </div>
 
                       <ChevronRight className="w-5 h-5 text-gray-300 shrink-0" />
-                    </Link>
+                    </button>
                   );
                 })}
               </div>

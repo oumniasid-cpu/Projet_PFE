@@ -1,194 +1,364 @@
-import React, { useState, useEffect } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 
-const GanttChart = ({ projectId }) => {
-  const [tasks, setTasks] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [rawData, setRawData] = useState(null); // for debugging
+/**
+ * GanttChart.jsx
+ * ──────────────
+ * Renders a Gantt diagram for a project using frappe-gantt.
+ * Loads the library dynamically from CDN (no npm install needed).
+ *
+ * Props:
+ *   tasks        — array from GET /api/projects/:id/tasks
+ *   projectId    — string | number, used for PATCH API calls
+ *   onTaskClick  — (taskId) => void  — opens TaskModal in edit mode
+ *   onUpdate     — () => void        — called after any PATCH so parent refreshes KPIs
+ *   authToken    — string            — Bearer token for API calls
+ *
+ * Task shape expected (from your API):
+ *   { id, wbs_code, name, planned_start, planned_end, progress_percent,
+ *     dependencies, is_delayed, status }
+ */
+
+const VIEW_MODES = [
+  { label: "Jour",    value: "Day"   },
+  { label: "Semaine", value: "Week"  },
+  { label: "Mois",    value: "Month" },
+  { label: "Année",   value: "Year"  },
+];
+
+const STATUS_COLORS = {
+  done:        "#3B6D11",
+  in_progress: "#185FA5",
+  delayed:     "#A32D2D",
+  not_started: "#5F5E5A",
+};
+
+const FRAPPE_CDN_JS  = "https://cdn.jsdelivr.net/npm/frappe-gantt/dist/frappe-gantt.umd.js";
+const FRAPPE_CDN_CSS = "https://cdn.jsdelivr.net/npm/frappe-gantt/dist/frappe-gantt.css";
+
+// ─── helpers ───────────────────────────────────────────────────────────────
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector(`script[src="${src}"]`)) return resolve();
+    const s = document.createElement("script");
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+function loadCSS(href) {
+  if (document.querySelector(`link[href="${href}"]`)) return;
+  const l = document.createElement("link");
+  l.rel = "stylesheet";
+  l.href = href;
+  document.head.appendChild(l);
+}
+
+function toFrappeTask(t) {
+  return {
+    id:           String(t.id),
+    name:         (t.wbs_code ? `${t.wbs_code} ` : "") + t.name,
+    start:        t.planned_start,
+    end:          t.planned_end,
+    progress:     Math.round(Number(t.progress_percent) || 0),
+    dependencies: t.dependencies || "",
+    custom_class: t.is_delayed ? "bar-delayed" : getStatusClass(t.status),
+  };
+}
+
+function getStatusClass(status) {
+  const map = {
+    done:        "bar-done",
+    in_progress: "bar-in-progress",
+    not_started: "bar-not-started",
+  };
+  return map[status] || "";
+}
+
+async function patchTask(projectId, taskId, payload, authToken) {
+  const res = await fetch(`/api/tasks/${taskId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+// ─── component ─────────────────────────────────────────────────────────────
+
+export default function GanttChart({
+  tasks = [],
+  projectId,
+  onTaskClick,
+  onUpdate,
+  authToken,
+}) {
+  const svgRef      = useRef(null);
+  const ganttRef    = useRef(null);
+  const [viewMode, setViewMode]   = useState("Week");
+  const [libReady, setLibReady]   = useState(false);
+  const [error, setError]         = useState(null);
+  const [patchError, setPatchError] = useState(null);
+  const [patchLoading, setPatchLoading] = useState(false);
+
+  // Load frappe-gantt once
+  useEffect(() => {
+    loadCSS(FRAPPE_CDN_CSS);
+    loadScript(FRAPPE_CDN_JS)
+      .then(() => setLibReady(true))
+      .catch(() => setError("Impossible de charger la bibliothèque Gantt. Vérifiez votre connexion."));
+  }, []);
+
+  // Inject custom bar styles
+  useEffect(() => {
+    const id = "gantt-custom-styles";
+    if (document.getElementById(id)) return;
+    const style = document.createElement("style");
+    style.id = id;
+    style.textContent = `
+      .gantt .bar-wrapper.bar-delayed .bar-progress { fill: #E24B4A; }
+      .gantt .bar-wrapper.bar-delayed .bar { fill: #FCEBEB; stroke: #E24B4A; }
+      .gantt .bar-wrapper.bar-done .bar-progress { fill: #3B6D11; }
+      .gantt .bar-wrapper.bar-done .bar { fill: #EAF3DE; stroke: #3B6D11; }
+      .gantt .bar-wrapper.bar-in-progress .bar-progress { fill: #185FA5; }
+      .gantt .bar-wrapper.bar-in-progress .bar { fill: #E6F1FB; stroke: #185FA5; }
+      .gantt .bar-wrapper.bar-not-started .bar-progress { fill: #888780; }
+      .gantt .bar-wrapper.bar-not-started .bar { fill: #F1EFE8; stroke: #888780; }
+      .gantt .bar-label { font-size: 11px; font-family: inherit; }
+      .gantt .today-highlight { fill: #FAEEDA; opacity: 0.35; }
+      .gantt-container { font-family: inherit; }
+    `;
+    document.head.appendChild(style);
+  }, []);
+
+  // Build / rebuild Gantt when tasks or viewMode change
+  const buildGantt = useCallback(() => {
+    if (!libReady || !svgRef.current || !window.Gantt) return;
+    if (!tasks.length) return;
+
+    const frappeTasks = tasks.map(toFrappeTask);
+
+    try {
+      ganttRef.current = new window.Gantt(svgRef.current, frappeTasks, {
+        view_mode:   viewMode,
+        date_format: "YYYY-MM-DD",
+        language:    "fr",
+
+        on_click: (task) => {
+          if (onTaskClick) onTaskClick(Number(task.id));
+        },
+
+        on_progress_change: async (task, progress) => {
+          if (!projectId) return;
+          setPatchLoading(true);
+          setPatchError(null);
+          try {
+            await patchTask(projectId, task.id, { progress_percent: Math.round(progress) }, authToken);
+            if (onUpdate) onUpdate();
+          } catch (e) {
+            setPatchError(`Erreur lors de la mise à jour de l'avancement : ${e.message}`);
+          } finally {
+            setPatchLoading(false);
+          }
+        },
+
+        on_date_change: async (task, start, end) => {
+          if (!projectId) return;
+          const fmt = (d) => d.toISOString().split("T")[0];
+          setPatchLoading(true);
+          setPatchError(null);
+          try {
+            await patchTask(projectId, task.id, {
+              planned_start: fmt(start),
+              planned_end:   fmt(end),
+            }, authToken);
+            if (onUpdate) onUpdate();
+          } catch (e) {
+            setPatchError(`Erreur lors de la mise à jour des dates : ${e.message}`);
+          } finally {
+            setPatchLoading(false);
+          }
+        },
+      });
+    } catch (e) {
+      setError(`Erreur d'initialisation du diagramme : ${e.message}`);
+    }
+  }, [libReady, tasks, viewMode, projectId, authToken, onTaskClick, onUpdate]);
 
   useEffect(() => {
-    const fetchGanttData = async () => {
+    buildGantt();
+  }, [buildGantt]);
+
+  // Change view mode on existing instance if possible
+  const handleViewMode = (mode) => {
+    setViewMode(mode);
+    if (ganttRef.current && ganttRef.current.change_view_mode) {
       try {
-        const token = localStorage.getItem('token');
-        const response = await fetch(`http://localhost:5000/api/dashboard/gantt/${projectId}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const data = await response.json();
-
-        // ── DEBUG: log exactly what the API returns
-        console.log("🔍 RAW GANTT DATA:", JSON.stringify(data, null, 2));
-        setRawData(data);
-
-        const arr = Array.isArray(data) ? data : [data];
-
-        // ── NORMALIZE: handle any field name the API might use
-        const normalized = arr.map(t => ({
-          id:         t.id         ?? t._id        ?? Math.random(),
-          name:       t.name       ?? t.task_name  ?? t.title      ?? t.label ?? 'Unnamed task',
-          progress:   t.progress   ?? t.completion ?? t.percent    ?? 0,
-          start_date: t.start_date ?? t.startDate  ?? t.start      ?? t.date_debut ?? null,
-          end_date:   t.end_date   ?? t.endDate    ?? t.end        ?? t.date_fin   ?? null,
-          status:     t.status     ?? null,
-        }));
-
-        console.log("✅ NORMALIZED TASKS:", normalized);
-        setTasks(normalized);
-      } catch (error) {
-        console.error("Erreur Gantt:", error);
-      } finally {
-        setLoading(false);
+        ganttRef.current.change_view_mode(mode);
+      } catch {
+        // rebuilds via useEffect
       }
-    };
-    if (projectId) fetchGanttData();
-  }, [projectId]);
-
-  if (loading) return (
-    <div style={{ padding: 40, textAlign: 'center', color: '#378add' }}>
-      Chargement du diagramme…
-    </div>
-  );
-
-  // ── FILTER VALID TASKS ──────────────────────────────────
-  const validTasks = tasks.filter(t => {
-    const s = new Date(t.start_date);
-    const e = new Date(t.end_date);
-    const valid = !isNaN(s.getTime()) && !isNaN(e.getTime());
-    if (!valid) console.warn("⚠️ Invalid date for task:", t);
-    return valid;
-  });
-
-  // ── DEBUG VIEW: show raw data in UI so you can see it
-  if (validTasks.length === 0) return (
-    <div style={{ padding: 24, background: '#fff', borderRadius: 16, border: '1px solid #b5d4f4' }}>
-      <p style={{ fontWeight: 700, color: '#b91c1c', marginBottom: 12 }}>
-        ⚠️ Dates invalides — voici les données brutes reçues de l'API :
-      </p>
-      <pre style={{
-        background: '#f8fafc', border: '1px solid #e2e8f0',
-        borderRadius: 8, padding: 16,
-        fontSize: 12, color: '#334155',
-        overflowX: 'auto', maxHeight: 300,
-        whiteSpace: 'pre-wrap', wordBreak: 'break-all',
-      }}>
-        {JSON.stringify(rawData, null, 2)}
-      </pre>
-      <p style={{ marginTop: 12, fontSize: 13, color: '#6b7280' }}>
-        Vérifiez les noms des champs de date dans votre API (ex: <code>start_date</code>, <code>startDate</code>, <code>date_debut</code>…)
-      </p>
-    </div>
-  );
-
-  // ── BUILD MONTH RANGE ───────────────────────────────────
-  const allDates   = validTasks.flatMap(t => [new Date(t.start_date), new Date(t.end_date)]);
-  const minDate    = new Date(Math.min(...allDates.map(d => d.getTime())));
-  const maxDate    = new Date(Math.max(...allDates.map(d => d.getTime())));
-  const viewStart  = new Date(minDate.getFullYear(), minDate.getMonth() - 1, 1);
-  const viewEnd    = new Date(maxDate.getFullYear(), maxDate.getMonth() + 2, 1);
-  const totalDays  = (viewEnd - viewStart) / 864e5;
-
-  const months = [];
-  const cursor = new Date(viewStart);
-  while (cursor < viewEnd) {
-    months.push(new Date(cursor));
-    cursor.setMonth(cursor.getMonth() + 1);
-  }
-
-  const getPct      = (date) => Math.max(0, Math.min(100, ((new Date(date) - viewStart) / 864e5 / totalDays) * 100));
-  const getWidthPct = (s, e)  => Math.max(1,  ((Math.min(new Date(e), viewEnd) - Math.max(new Date(s), viewStart)) / 864e5 / totalDays) * 100);
-  const formatDate  = (d)     => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-  const formatMonth = (d)     => d.toLocaleDateString('en-GB', { month: 'short', year: '2-digit' });
-
-  const getBarStyle = (p) => {
-    if (p >= 100) return { background: '#86efac', border: '1px solid #4ade80' };
-    if (p > 0)    return { background: '#93c5fd', border: '1px solid #60a5fa' };
-    return               { background: '#94a3b8', border: '1px solid #64748b' };
+    }
   };
 
-  const legend = [
-    { label: 'Completed',   bg: '#86efac', border: '#4ade80' },
-    { label: 'In Progress', bg: '#93c5fd', border: '#60a5fa' },
-    { label: 'Pending',     bg: '#94a3b8', border: '#64748b' },
-    { label: 'Delayed',     bg: '#fca5a5', border: '#f87171' },
-  ];
+  // ── render ────────────────────────────────────────────────────────────────
+
+  if (error) {
+    return (
+      <div style={{
+        padding: "2rem",
+        textAlign: "center",
+        color: "var(--color-text-danger)",
+        background: "var(--color-background-danger)",
+        borderRadius: "var(--border-radius-lg)",
+        border: "0.5px solid var(--color-border-danger)",
+        fontSize: 14,
+      }}>
+        <i className="ti ti-alert-circle" style={{ fontSize: 24, display: "block", marginBottom: 8 }} aria-hidden="true" />
+        {error}
+      </div>
+    );
+  }
+
+  if (!libReady) {
+    return (
+      <div style={{ padding: "2rem", textAlign: "center", color: "var(--color-text-secondary)", fontSize: 14 }}>
+        <i className="ti ti-loader" style={{ fontSize: 20, marginRight: 8, display: "inline-block" }} aria-hidden="true" />
+        Chargement du diagramme…
+      </div>
+    );
+  }
+
+  if (!tasks.length) {
+    return (
+      <div style={{
+        padding: "3rem 2rem",
+        textAlign: "center",
+        color: "var(--color-text-secondary)",
+        fontSize: 14,
+        border: "0.5px dashed var(--color-border-tertiary)",
+        borderRadius: "var(--border-radius-lg)",
+      }}>
+        <i className="ti ti-calendar-off" style={{ fontSize: 32, display: "block", marginBottom: 12, opacity: 0.4 }} aria-hidden="true" />
+        Aucune tâche à afficher dans le diagramme.
+        <br />
+        <span style={{ fontSize: 13 }}>Ajoutez des tâches depuis l'onglet "Tableau des tâches".</span>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ background: '#fff', borderRadius: 20, border: '0.5px solid #b5d4f4', padding: '24px 28px', overflowX: 'auto' }}>
+    <div style={{ fontFamily: "var(--font-sans)" }}>
 
-      <div style={{ marginBottom: 16 }}>
-        <h3 style={{ fontSize: 18, fontWeight: 700, color: '#111827', marginBottom: 2 }}>Project Timeline</h3>
-        <p style={{ fontSize: 13, color: '#6b7280' }}>Gantt chart view of project milestones</p>
-      </div>
+      {/* toolbar */}
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        marginBottom: 16,
+        flexWrap: "wrap",
+        gap: 12,
+      }}>
 
-      <div style={{ display: 'flex', gap: 20, marginBottom: 20, flexWrap: 'wrap' }}>
-        {legend.map(l => (
-          <span key={l.label} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#374151' }}>
-            <span style={{ width: 10, height: 10, borderRadius: '50%', background: l.bg, border: `1.5px solid ${l.border}`, display: 'inline-block' }} />
-            {l.label}
-          </span>
-        ))}
-      </div>
-
-      <div style={{ minWidth: 700 }}>
-        {/* Month headers */}
-        <div style={{ display: 'flex', marginBottom: 8, paddingLeft: 220 }}>
-          {months.map((m, i) => (
-            <div key={i} style={{ width: `${100 / months.length}%`, fontSize: 11, fontWeight: 600, color: '#6b7280', textAlign: 'center', flexShrink: 0 }}>
-              {formatMonth(m)}
-            </div>
+        {/* view mode toggle */}
+        <div style={{
+          display: "flex",
+          gap: 0,
+          border: "0.5px solid var(--color-border-secondary)",
+          borderRadius: "var(--border-radius-md)",
+          overflow: "hidden",
+        }}>
+          {VIEW_MODES.map((m) => (
+            <button
+              key={m.value}
+              onClick={() => handleViewMode(m.value)}
+              style={{
+                padding: "5px 14px",
+                fontSize: 13,
+                border: "none",
+                borderRight: "0.5px solid var(--color-border-tertiary)",
+                cursor: "pointer",
+                background: viewMode === m.value
+                  ? "var(--color-background-info)"
+                  : "var(--color-background-primary)",
+                color: viewMode === m.value
+                  ? "var(--color-text-info)"
+                  : "var(--color-text-secondary)",
+                fontWeight: viewMode === m.value ? 500 : 400,
+                transition: "background 0.15s",
+              }}
+            >
+              {m.label}
+            </button>
           ))}
         </div>
 
-        <div style={{ height: 1, background: '#e5e7eb', marginBottom: 12 }} />
+        {/* patch status */}
+        <div style={{ fontSize: 12, color: "var(--color-text-secondary)", display: "flex", alignItems: "center", gap: 6 }}>
+          {patchLoading && (
+            <>
+              <i className="ti ti-loader" style={{ fontSize: 14 }} aria-hidden="true" />
+              Enregistrement…
+            </>
+          )}
+          {patchError && !patchLoading && (
+            <span style={{ color: "var(--color-text-danger)" }}>
+              <i className="ti ti-alert-triangle" style={{ fontSize: 14, marginRight: 4 }} aria-hidden="true" />
+              {patchError}
+            </span>
+          )}
+        </div>
+      </div>
 
-        {/* Rows */}
-        {validTasks.map((task, i) => {
-          const p         = task.progress ?? 0;
-          const leftPct   = getPct(task.start_date);
-          const widthPct  = getWidthPct(task.start_date, task.end_date);
-          const barStyle  = getBarStyle(p);
+      {/* hint */}
+      <p style={{ fontSize: 12, color: "var(--color-text-tertiary)", marginBottom: 12, marginTop: 0 }}>
+        Glissez une barre pour modifier les dates · Glissez le coin droit de la progression pour mettre à jour l'avancement · Cliquez sur une barre pour modifier la tâche.
+      </p>
 
-          return (
-            <div key={task.id ?? i} style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid #f3f4f6', padding: '10px 0' }}>
-              
-              {/* Name */}
-              <div style={{ width: 220, flexShrink: 0, paddingRight: 16 }}>
-                <p style={{ fontSize: 13, fontWeight: 700, color: '#111827', marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {task.name}
-                </p>
-                <p style={{ fontSize: 11, color: '#9ca3af' }}>{p}% complete</p>
-              </div>
+      {/* chart */}
+      <div style={{ overflowX: "auto", width: "100%", border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-lg)" }}>
+        <svg ref={svgRef} id="gantt-svg" />
+      </div>
 
-              {/* Bar */}
-              <div style={{ flex: 1, position: 'relative', height: 36 }}>
-                {months.map((_, mi) => (
-                  <div key={mi} style={{ position: 'absolute', left: `${(mi / months.length) * 100}%`, top: 0, bottom: 0, width: 1, background: '#f3f4f6' }} />
-                ))}
-                <div style={{ position: 'absolute', top: '50%', transform: 'translateY(-50%)', left: 0, right: 0, height: 1, background: '#e5e7eb' }} />
-                <div
-                  style={{
-                    position: 'absolute', top: '50%', transform: 'translateY(-50%)',
-                    left: `${leftPct}%`, width: `${widthPct}%`,
-                    height: 28, borderRadius: 6,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 11, fontWeight: 700, color: '#374151',
-                    overflow: 'hidden', cursor: 'default',
-                    ...barStyle,
-                  }}
-                  title={`${task.name}: ${formatDate(task.start_date)} → ${formatDate(task.end_date)}`}
-                >
-                  {p >= 100 ? '✓' : `${p}%`}
-                </div>
-              </div>
-
-              {/* Date range */}
-              <div style={{ width: 120, flexShrink: 0, paddingLeft: 12, fontSize: 11, color: '#6b7280', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                {formatDate(task.start_date)} – {formatDate(task.end_date)}
-              </div>
-            </div>
-          );
-        })}
+      {/* legend */}
+      <div style={{
+        display: "flex",
+        gap: 20,
+        flexWrap: "wrap",
+        marginTop: 16,
+        paddingTop: 12,
+        borderTop: "0.5px solid var(--color-border-tertiary)",
+      }}>
+        {[
+          { color: STATUS_COLORS.in_progress, label: "En cours"      },
+          { color: STATUS_COLORS.done,        label: "Terminée"      },
+          { color: STATUS_COLORS.delayed,     label: "En retard"     },
+          { color: STATUS_COLORS.not_started, label: "Non démarrée" },
+        ].map(({ color, label }) => (
+          <div key={label} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--color-text-secondary)" }}>
+            <span style={{
+              width: 10, height: 10,
+              borderRadius: "50%",
+              background: color,
+              flexShrink: 0,
+            }} />
+            {label}
+          </div>
+        ))}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--color-text-secondary)", marginLeft: "auto" }}>
+          <span style={{ width: 10, height: 10, background: "#EF9F27", opacity: 0.4, flexShrink: 0, borderRadius: 2 }} />
+          Aujourd'hui
+        </div>
       </div>
     </div>
   );
-};
-
-export default GanttChart;
+}

@@ -10,9 +10,23 @@ exports.getAllProjects = async (req, res) => {
   try {
     const query = `
       SELECT p.*, u.name as owner_name,
+      COALESCE(p.planned_budget, p.budget_total, 0) as planned_budget,
+      COALESCE(p.actual_cost, p.budget_spent, 0) as actual_cost,
+      COALESCE(progress_calc.overall_progress, p.progress, 0) as overall_progress,
+      COALESCE(progress_calc.overall_progress, p.progress, 0) as progress,
+      COALESCE(p.planned_budget, p.budget_total, 0) as budget_total,
+      COALESCE(p.actual_cost, p.budget_spent, 0) as budget_spent,
       (SELECT COUNT(*) FROM project_members WHERE project_id = p.id) as member_count
       FROM projects p
       LEFT JOIN users u ON p.owner_id = u.id
+      LEFT JOIN LATERAL (
+        SELECT ROUND(
+          SUM(COALESCE(t.progress_percent, 0) * GREATEST(COALESCE(t.duration_days, 1), 1))
+          / NULLIF(SUM(GREATEST(COALESCE(t.duration_days, 1), 1)), 0)
+        )::int as overall_progress
+        FROM tasks t
+        WHERE t.project_id = p.id
+      ) progress_calc ON true
       ORDER BY p.created_at DESC;
     `;
     const { rows } = await pool.query(query);
@@ -28,9 +42,23 @@ exports.getProjectById = async (req, res) => {
   const { id } = req.params;
   try {
     const query = `
-      SELECT p.*, u.name as owner_name 
+      SELECT p.*, u.name as owner_name,
+      COALESCE(p.planned_budget, p.budget_total, 0) as planned_budget,
+      COALESCE(p.actual_cost, p.budget_spent, 0) as actual_cost,
+      COALESCE(progress_calc.overall_progress, p.progress, 0) as overall_progress,
+      COALESCE(progress_calc.overall_progress, p.progress, 0) as progress,
+      COALESCE(p.planned_budget, p.budget_total, 0) as budget_total,
+      COALESCE(p.actual_cost, p.budget_spent, 0) as budget_spent
       FROM projects p
       LEFT JOIN users u ON p.owner_id = u.id
+      LEFT JOIN LATERAL (
+        SELECT ROUND(
+          SUM(COALESCE(t.progress_percent, 0) * GREATEST(COALESCE(t.duration_days, 1), 1))
+          / NULLIF(SUM(GREATEST(COALESCE(t.duration_days, 1), 1)), 0)
+        )::int as overall_progress
+        FROM tasks t
+        WHERE t.project_id = p.id
+      ) progress_calc ON true
       WHERE p.id = $1
     `;
     const result = await pool.query(query, [id]);
@@ -39,7 +67,20 @@ exports.getProjectById = async (req, res) => {
       return res.status(404).json({ message: "Projet non trouvé" });
     }
 
-    res.json(result.rows[0]);
+    const tasksResult = await pool.query(
+      `SELECT
+        id, project_id, parent_task_id, wbs_code,
+        COALESCE(name, title) as name,
+        planned_start, planned_end, actual_start, actual_end,
+        duration_days, progress_percent, planned_cost, actual_cost,
+        responsible_user_id, status, created_at
+      FROM tasks
+      WHERE project_id = $1
+      ORDER BY COALESCE(wbs_code, id::text), id`,
+      [id]
+    );
+
+    res.json({ ...result.rows[0], tasks: tasksResult.rows });
   } catch (err) {
     console.error('Error fetching project by ID:', err);
     res.status(500).json({ error: "Erreur serveur" });

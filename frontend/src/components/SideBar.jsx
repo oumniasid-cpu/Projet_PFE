@@ -94,7 +94,7 @@ const SideBar = () => {
         {/* User info */}
         <div className="flex items-center gap-3 px-2 mb-3">
           <div
-            className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
+            className="w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0"
             style={{ background: 'linear-gradient(135deg, #1d37c8, #378add)' }}
           >
             {initials}
