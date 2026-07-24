@@ -1,47 +1,77 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { 
-  User, 
-  Bell, 
-  Shield, 
-  Palette, 
-  Save, 
+import axios from 'axios';
+import {
+  User,
+  Bell,
+  Shield,
+  Palette,
+  Save,
   Lock,
   Eye,
-  Trash2
+  Trash2,
+  Check
 } from 'lucide-react';
 
 // Vos composants de navigation
 import SideBar from '../components/SideBar';
 import TopBar from '../components/TopBar';
 
-export default function Settings() {
-  // Simulation de l'utilisateur (à remplacer par votre context auth)
-  const user = { name: "Prénom Nom", email: "contact@entreprise.com", role: "Engineer" };
-const [phone, setPhone] = useState('');
+const API_BASE = 'http://localhost:5000/api/auth';
 
-const handlePhoneChange = (e) => {
-  // 1. On récupère la valeur saisie
-  const input = e.target.value;
-  
-  // 2. On enlève tout ce qui n'est pas un chiffre (Regex)
-  const numbersOnly = input.replace(/\D/g, '');
-  
-  // 3. On ajoute le + au début s'il y a au moins un chiffre
-  if (numbersOnly.length > 0) {
-    setPhone('+' + numbersOnly);
-  } else {
-    setPhone('');
-  }
-};
+export default function Settings() {
+  // Utilisateur réel depuis localStorage (mis à jour au login)
+  const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
+
+  const [name, setName] = useState(storedUser.name || '');
+  const [phone, setPhone] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState('');
+  const [saveError, setSaveError] = useState('');
+
+  const handlePhoneChange = (e) => {
+    const input = e.target.value;
+    const numbersOnly = input.replace(/\D/g, '');
+    if (numbersOnly.length > 0) {
+      setPhone('+' + numbersOnly);
+    } else {
+      setPhone('');
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    setSaving(true);
+    setSaveMessage('');
+    setSaveError('');
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.put(
+        `${API_BASE}/profile`,
+        { name },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      // Met à jour localStorage pour que la sidebar reflète le changement immédiatement
+      localStorage.setItem('user', JSON.stringify(response.data.user));
+
+      setSaveMessage('Profil mis à jour avec succès !');
+      setTimeout(() => setSaveMessage(''), 3000);
+    } catch (err) {
+      setSaveError(err.response?.data?.message || 'Erreur lors de la mise à jour');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="flex h-screen bg-gray-100 text-gray-900">
       <SideBar />
-      
+
       <div className="flex-1 flex flex-col overflow-hidden">
-       
+
         <main className="flex-1 overflow-y-auto p-6 lg:p-8 space-y-8">
-          
+
           {/* Header */}
           <div className="max-w-4xl">
             <h1 className="text-2xl font-bold">Paramètres</h1>
@@ -49,10 +79,10 @@ const handlePhoneChange = (e) => {
           </div>
 
           <div className="max-w-4xl space-y-6 pb-12">
-            
+
             {/* Section Profil */}
-            <SettingsCard 
-              title="Informations Personnelles" 
+            <SettingsCard
+              title="Informations Personnelles"
               subtitle="Mettez à jour vos détails publics"
               icon={<User className="text-blue-600" />}
               iconBg="bg-blue-50"
@@ -60,31 +90,55 @@ const handlePhoneChange = (e) => {
               <div className="grid sm:grid-cols-2 gap-4 mt-4">
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-gray-500 uppercase">Nom Complet</label>
-                  <input type="text" defaultValue={user.name} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" />
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
+                  />
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-gray-500 uppercase">Email</label>
-                  <input type="email" defaultValue={user.email} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" />
+                  <input
+                    type="email"
+                    defaultValue={storedUser.email}
+                    disabled
+                    className="w-full p-2.5 bg-gray-100 border border-gray-200 rounded-xl text-gray-400 cursor-not-allowed"
+                  />
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-gray-500 uppercase">Rôle</label>
-                  <input type="text" defaultValue={user.role} disabled className="w-full p-2.5 bg-gray-100 border border-gray-200 rounded-xl text-gray-400 cursor-not-allowed" />
+                  <input type="text" defaultValue={storedUser.role || 'Member'} disabled className="w-full p-2.5 bg-gray-100 border border-gray-200 rounded-xl text-gray-400 cursor-not-allowed" />
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-gray-500 uppercase">Téléphone</label>
                   <input type="text" value={phone} onChange={handlePhoneChange} placeholder="+213 -- -- -- --" className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
               </div>
+
+              {saveMessage && (
+                <div className="mt-4 flex items-center gap-2 text-green-600 text-sm font-medium">
+                  <Check size={16} /> {saveMessage}
+                </div>
+              )}
+              {saveError && (
+                <div className="mt-4 text-red-600 text-sm font-medium">{saveError}</div>
+              )}
+
               <div className="mt-6 flex justify-end">
-                <button className="flex items-center gap-2 bg-blue-600 text-white px-6 py-2 rounded-xl font-bold hover:bg-blue-700 transition-all">
-                  <Save size={18} /> Sauvegarder
+                <button
+                  onClick={handleSaveProfile}
+                  disabled={saving}
+                  className="flex items-center gap-2 bg-blue-600 text-white px-6 py-2 rounded-xl font-bold hover:bg-blue-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Save size={18} /> {saving ? 'Enregistrement...' : 'Sauvegarder'}
                 </button>
               </div>
             </SettingsCard>
 
             {/* Section Notifications */}
-            <SettingsCard 
-              title="Notifications" 
+            <SettingsCard
+              title="Notifications"
               subtitle="Choisissez ce que vous voulez recevoir"
               icon={<Bell className="text-orange-500" />}
               iconBg="bg-orange-50"
@@ -97,8 +151,8 @@ const handlePhoneChange = (e) => {
             </SettingsCard>
 
             {/* Section Sécurité */}
-            <SettingsCard 
-              title="Sécurité" 
+            <SettingsCard
+              title="Sécurité"
               subtitle="Protégez l'accès à votre compte"
               icon={<Shield className="text-emerald-600" />}
               iconBg="bg-emerald-50"
@@ -139,7 +193,7 @@ const handlePhoneChange = (e) => {
 
 function SettingsCard({ title, subtitle, icon, iconBg, children }) {
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm"
@@ -160,14 +214,14 @@ function SettingsCard({ title, subtitle, icon, iconBg, children }) {
 
 function ToggleRow({ label, description, defaultEnabled }) {
   const [enabled, setEnabled] = useState(defaultEnabled);
-  
+
   return (
     <div className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
       <div>
         <p className="text-sm font-bold text-gray-800">{label}</p>
         <p className="text-xs text-gray-500">{description}</p>
       </div>
-      <button 
+      <button
         onClick={() => setEnabled(!enabled)}
         className={`w-11 h-6 rounded-full transition-colors relative ${enabled ? 'bg-blue-600' : 'bg-gray-300'}`}
       >

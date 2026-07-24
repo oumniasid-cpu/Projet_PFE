@@ -5,9 +5,10 @@ const path = require('path');
 const fs = require('fs');
 const db = require('../db.js');
 
-// Récupérer tous les projets
+// Récupérer tous les projets DE L'UTILISATEUR CONNECTÉ
 exports.getAllProjects = async (req, res) => {
   try {
+    const userId = req.user.id; // ⚠️ adjust if your JWT payload uses a different key
     const query = `
       SELECT p.*, u.name as owner_name,
       COALESCE(p.planned_budget, p.budget_total, 0) as planned_budget,
@@ -27,9 +28,10 @@ exports.getAllProjects = async (req, res) => {
         FROM tasks t
         WHERE t.project_id = p.id
       ) progress_calc ON true
+      WHERE p.owner_id = $1
       ORDER BY p.created_at DESC;
     `;
-    const { rows } = await pool.query(query);
+    const { rows } = await pool.query(query, [userId]);
     res.status(200).json(rows);
   } catch (err) {
     console.error('Error fetching projects:', err);
@@ -37,9 +39,10 @@ exports.getAllProjects = async (req, res) => {
   }
 };
 
-// Récupérer un projet par ID (Correction de la requête)
+// Récupérer un projet par ID (uniquement si l'utilisateur en est le propriétaire)
 exports.getProjectById = async (req, res) => {
   const { id } = req.params;
+  const userId = req.user.id; // ⚠️ adjust if your JWT payload uses a different key
   try {
     const query = `
       SELECT p.*, u.name as owner_name,
@@ -59,9 +62,9 @@ exports.getProjectById = async (req, res) => {
         FROM tasks t
         WHERE t.project_id = p.id
       ) progress_calc ON true
-      WHERE p.id = $1
+      WHERE p.id = $1 AND p.owner_id = $2
     `;
-    const result = await pool.query(query, [id]);
+    const result = await pool.query(query, [id, userId]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ message: "Projet non trouvé" });
@@ -87,19 +90,15 @@ exports.getProjectById = async (req, res) => {
   }
 };
 
-
-
 exports.importMPP = (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: "Aucun fichier téléchargé" });
   }
 
   const filePath = req.file.path;
-  // Utilisation de path.join avec __dirname pour plus de sécurité
   const scriptPath = path.join(__dirname, '../scripts/mpp_parser.py');
 
   exec(`python "${scriptPath}" "${filePath}"`, async (error, stdout, stderr) => {
-    // Supprimer le fichier temporaire immédiatement
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
 
     if (error) {
@@ -110,18 +109,16 @@ exports.importMPP = (req, res) => {
     try {
       const tasks = JSON.parse(stdout);
 
-      // Utilisation de transactions ou Promise.all pour PostgreSQL
       const insertPromises = tasks.map(task => {
         const query = `
           INSERT INTO projects (name, start_date, end_date, progress, budget_total) 
           VALUES ($1, $2, $3, $4, $5)
         `;
-        // Mapping exact avec les clés JSON de mpp_parser.py
         const values = [
-          task.name, 
-          task.start_date, 
-          task.end_date, 
-          task.progress, 
+          task.name,
+          task.start_date,
+          task.end_date,
+          task.progress,
           task.cost
         ];
         return pool.query(query, values);

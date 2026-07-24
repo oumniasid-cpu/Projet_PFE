@@ -3,7 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const projectController = require('../controllers/projectController');
 const jwt = require('jsonwebtoken');
-// Ajoutez ceci après la route GET '/'
+
 // Middleware d'authentification
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -20,14 +20,11 @@ const authenticateToken = (req, res, next) => {
 // Configuration de stockage temporaire pour le fichier .mpp
 const upload = multer({ dest: 'uploads/' });
 
-// Remplace importMPP par projectController.importMPP
 router.post('/import-mpp', upload.single('mppFile'), projectController.importMPP);
 
-
-// ROUTES
-router.get('/', projectController.getAllProjects); // Utilise le controller
+// ROUTES — toutes protégées maintenant
+router.get('/', authenticateToken, projectController.getAllProjects);
 router.get('/:id', authenticateToken, projectController.getProjectById);
- // AJOUTÉ : Route pour l'ID spécifique
 router.post('/', authenticateToken, async (req, res) => {
   // Votre logique de création ici...
 });

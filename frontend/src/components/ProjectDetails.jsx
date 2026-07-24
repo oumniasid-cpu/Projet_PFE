@@ -8,7 +8,7 @@ import {
   Download
 } from 'lucide-react';
 import GanttChart from '../components/GanttChart';
-import Sidebar from '../components/Sidebar';
+import Sidebar from '../components/SideBar';
 import {
   Chart as ChartJS,
   ArcElement, Tooltip, Legend,
