@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState, useRef } from 'react';
 import SideBar from '../components/SideBar';
-import { NewProject, ImportExcelModal, ImportMSProjectModal } from '../components/newProject';
+import { NewProject } from '../components/newProject';
 import ProjectDetails from '../components/ProjectDetails';
 import ImportModal from '../components/ImportModal';
 
@@ -17,9 +17,11 @@ const Projects = () => {
 
   // Modal states
   const [modalManual, setModalManual] = useState(false);
-  const [modalExcel, setModalExcel] = useState(false);
-  const [modalMSProject, setModalMSProject] = useState(false);
-  const [modalImport, setModalImport] = useState(false);
+  // Import unifié : null = fermé, 'excel' ou 'msproject' = ouvert avec ce type pré-sélectionné.
+  // Les deux passent par le même ImportModal, qui appelle le vrai endpoint
+  // fonctionnel /api/import/upload (import_service.js) — plus de doublon
+  // avec un flux "import" qui ne créait qu'un projet vide sans tâches.
+  const [importType, setImportType] = useState(null);
 
   // Dropdown
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -114,15 +116,7 @@ const Projects = () => {
                 />
               </div>
 
-              <button
-                onClick={() => setModalImport(true)}
-                className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors"
-              >
-                <FileSpreadsheet className="w-4 h-4" />
-                Importer un projet
-              </button>
-
-              {/* ── DROPDOWN BUTTON ── */}
+              {/* ── DROPDOWN BUTTON : création manuelle + import (Excel / MS Project) ── */}
               <div className="relative" ref={dropdownRef}>
                 <button
                   onClick={() => setDropdownOpen(v => !v)}
@@ -152,9 +146,9 @@ const Projects = () => {
 
                     <div className="h-px bg-gray-100 mx-3" />
 
-                    {/* Option 2 – Excel */}
+                    {/* Option 2 – Excel (ouvre ImportModal en mode "excel") */}
                     <button
-                      onClick={() => { setDropdownOpen(false); setModalExcel(true); }}
+                      onClick={() => { setDropdownOpen(false); setImportType('excel'); }}
                       className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-700 hover:bg-green-50 hover:text-green-700 transition-colors group"
                     >
                       <div className="w-8 h-8 rounded-lg bg-green-50 group-hover:bg-green-100 flex items-center justify-center transition-colors">
@@ -168,9 +162,9 @@ const Projects = () => {
 
                     <div className="h-px bg-gray-100 mx-3" />
 
-                    {/* Option 3 – MS Project */}
+                    {/* Option 3 – MS Project (ouvre ImportModal en mode "msproject") */}
                     <button
-                      onClick={() => { setDropdownOpen(false); setModalMSProject(true); }}
+                      onClick={() => { setDropdownOpen(false); setImportType('msproject'); }}
                       className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-700 hover:bg-orange-50 hover:text-orange-700 transition-colors group"
                     >
                       <div className="w-8 h-8 rounded-lg bg-orange-50 group-hover:bg-orange-100 flex items-center justify-center transition-colors">
@@ -279,9 +273,12 @@ const Projects = () => {
 
       {/* Modals */}
       <NewProject open={modalManual} onOpenChange={setModalManual} onProjectCreated={handleProjectCreated} />
-      <ImportExcelModal open={modalExcel} onOpenChange={setModalExcel} onProjectCreated={handleProjectCreated} />
-      <ImportMSProjectModal open={modalMSProject} onOpenChange={setModalMSProject} onProjectCreated={handleProjectCreated} />
-      <ImportModal open={modalImport} onOpenChange={setModalImport} onImported={fetchProjects} />
+      <ImportModal
+        open={importType !== null}
+        fileType={importType}
+        onOpenChange={(v) => setImportType(v ? importType : null)}
+        onImported={fetchProjects}
+      />
     </div>
   );
 };

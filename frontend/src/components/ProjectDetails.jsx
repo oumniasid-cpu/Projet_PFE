@@ -4,8 +4,7 @@ import {
   ArrowLeft, Calendar, Users, Clock,
   Layers, Wallet, FileText, AlertTriangle,
   Plus, ChevronRight, BarChart2, Target, TrendingDown, CalendarDays,
-  Upload, Search, FileCheck, Map, ClipboardList, MoreHorizontal,
-  Download
+  Upload, Search, FileCheck, Map, ClipboardList, MoreHorizontal
 } from 'lucide-react';
 import GanttChart from '../components/GanttChart';
 import Sidebar from '../components/SideBar';
@@ -443,114 +442,17 @@ const DocumentsTab = ({ projectId }) => {
   );
 };
 
-const fmt = (value) => value ? new Date(value).toLocaleDateString('fr-FR') : '-';
-const money = (value) => Number(value || 0).toLocaleString('fr-FR') + ' DA';
-
-const TasksTab = ({ project }) => {
-  const tasks = [...(project.tasks || [])].sort((a, b) => (
-    String(a.wbs_code || '').localeCompare(String(b.wbs_code || ''), undefined, { numeric: true })
-  ));
-
-  const exportCsv = () => {
-    const headers = ['WBS', 'Nom de la tache', 'Debut prevu', 'Fin prevue', 'Duree', 'Avancement %', 'Cout prevu', 'Cout reel', 'Statut'];
-    const rows = tasks.map((task) => [
-      task.wbs_code,
-      task.name,
-      fmt(task.planned_start),
-      fmt(task.planned_end),
-      task.duration_days,
-      task.progress_percent,
-      task.planned_cost,
-      task.actual_cost,
-      task.status,
-    ]);
-    const csv = [headers, ...rows].map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(';')).join('\n');
-    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${project.name || 'projet'}-taches.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  return (
-    <div style={{ background: '#fff', borderRadius: 24, border: `1px solid ${C.lighter}`, overflow: 'hidden' }}>
-      <div style={{ padding: 24, borderBottom: `1px solid ${C.pale}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
-        <div>
-          <h3 style={{ fontSize: 18, fontWeight: 700, color: '#111827', marginBottom: 2 }}>Taches importees</h3>
-          <p style={{ fontSize: 13, color: '#6b7280' }}>{tasks.length} tache{tasks.length > 1 ? 's' : ''}</p>
-        </div>
-        <button
-          onClick={exportCsv}
-          disabled={!tasks.length}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            background: C.primary, color: '#fff',
-            padding: '10px 18px', borderRadius: 12,
-            fontSize: 13, fontWeight: 700, border: 'none',
-            cursor: tasks.length ? 'pointer' : 'not-allowed',
-            opacity: tasks.length ? 1 : 0.45,
-          }}
-        >
-          <Download size={15} /> Exporter
-        </button>
-      </div>
-
-      <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="bg-gray-50 border-b border-gray-200 text-gray-400 text-[10px] uppercase tracking-widest font-bold">
-              {['WBS', 'Nom de la tache', 'Debut prevu', 'Fin prevue', 'Duree', 'Avancement %', 'Cout prevu', 'Cout reel', 'Statut'].map((head) => (
-                <th key={head} className="px-4 py-3">{head}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {tasks.map((task) => {
-              const level = Math.max(0, String(task.wbs_code || '').split('.').length - 1);
-              const taskProgress = Number(task.progress_percent || 0);
-              return (
-                <tr key={task.id} className="hover:bg-gray-50/50">
-                  <td className="px-4 py-3 text-xs font-bold text-gray-600">{task.wbs_code || '-'}</td>
-                  <td className="px-4 py-3 text-sm font-semibold text-gray-900" style={{ paddingLeft: 16 + level * 18 }}>{task.name}</td>
-                  <td className="px-4 py-3 text-xs text-gray-500">{fmt(task.planned_start)}</td>
-                  <td className="px-4 py-3 text-xs text-gray-500">{fmt(task.planned_end)}</td>
-                  <td className="px-4 py-3 text-xs text-gray-500">{task.duration_days || 0} j</td>
-                  <td className="px-4 py-3 min-w-36">
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 h-1 bg-gray-100 rounded-full overflow-hidden">
-                        <div className="bg-blue-600 h-full" style={{ width: `${Math.min(taskProgress, 100)}%` }} />
-                      </div>
-                      <span className="text-[10px] font-bold">{taskProgress}%</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-xs text-gray-500">{money(task.planned_cost)}</td>
-                  <td className="px-4 py-3 text-xs text-gray-500">{money(task.actual_cost)}</td>
-                  <td className="px-4 py-3">
-                    <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-700 text-[9px] font-black uppercase">{task.status}</span>
-                  </td>
-                </tr>
-              );
-            })}
-            {!tasks.length && (
-              <tr>
-                <td colSpan="9" className="px-6 py-10 text-center text-gray-400 italic">Aucune tache trouvee.</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-};
-
 // ── MAIN ───────────────────────────────────────────────────
 export default function ProjectDetails({ projectId, onBack }) {
   const [activeTab, setActiveTab] = useState('analytics');
   const [project, setProject] = useState(null);
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [ganttTasks, setGanttTasks] = useState([]);
+  const [ganttLoading, setGanttLoading] = useState(false);
+  const [ganttError, setGanttError] = useState(null);
+
+  const authToken = localStorage.getItem('token');
 
   useEffect(() => {
     const load = async () => {
@@ -577,6 +479,30 @@ export default function ProjectDetails({ projectId, onBack }) {
     }
   }, [activeTab, projectId]);
 
+  // Charge les tâches du projet pour alimenter le Gantt (endpoint task_routes.js,
+  // qui renvoie is_delayed/dependencies — exactement ce que GanttChart attend).
+  const loadGanttTasks = useCallback(async () => {
+    if (!projectId) return;
+    setGanttLoading(true);
+    setGanttError(null);
+    try {
+      const res = await fetch(`http://localhost:5000/api/projects/${projectId}/tasks`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (!res.ok) throw new Error(`Erreur ${res.status}`);
+      setGanttTasks(await res.json());
+    } catch (e) {
+      console.error(e);
+      setGanttError("Impossible de charger les tâches du planning.");
+    } finally {
+      setGanttLoading(false);
+    }
+  }, [projectId, authToken]);
+
+  useEffect(() => {
+    if (activeTab === 'gantt' && projectId) loadGanttTasks();
+  }, [activeTab, projectId, loadGanttTasks]);
+
   if (loading) return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>
       <Sidebar />
@@ -599,7 +525,6 @@ export default function ProjectDetails({ projectId, onBack }) {
 
   const tabs = [
     { id: 'analytics', label: 'Analytics', icon: BarChart2 },
-    { id: 'tasks', label: 'Tasks', icon: ClipboardList },
     { id: 'budget', label: 'Budget tracking', icon: Wallet },
     { id: 'gantt', label: 'Gantt planning', icon: Layers },
     { id: 'daily-reports', label: 'Daily reports', icon: FileText },
@@ -732,12 +657,25 @@ export default function ProjectDetails({ projectId, onBack }) {
           transition={{ duration: 0.22 }}
         >
           {activeTab === 'analytics' && <AnalyticsTab />}
-          {activeTab === 'tasks' && <TasksTab project={project} />}
           {activeTab === 'budget' && <BudgetPlaceholder project={project} />}
 
           {activeTab === 'gantt' && (
             <div style={{ background: '#fff', padding: 28, borderRadius: 24, border: `0.5px solid ${C.lighter}` }}>
-              <GanttChart projectId={projectId} />
+              {ganttLoading && ganttTasks.length === 0 ? (
+                <p style={{ color: C.mid, textAlign: 'center', padding: 24 }}>Chargement du planning…</p>
+              ) : ganttError ? (
+                <p style={{ color: '#b91c1c', textAlign: 'center', padding: 24 }}>{ganttError}</p>
+              ) : ganttTasks.length === 0 ? (
+                <p style={{ color: C.mid, textAlign: 'center', padding: 24 }}>Aucune tâche pour ce projet.</p>
+              ) : (
+                <GanttChart
+                  tasks={ganttTasks}
+                  projectId={projectId}
+                  authToken={authToken}
+                  onUpdate={loadGanttTasks}
+                  onTaskClick={() => {}}
+                />
+              )}
             </div>
           )}
 

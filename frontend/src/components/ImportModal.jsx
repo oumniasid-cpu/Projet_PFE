@@ -4,13 +4,25 @@ import { AlertCircle, CheckCircle2, FileSpreadsheet, Loader2, Upload, X } from '
 const inputCls = "w-full p-2.5 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all text-sm";
 const labelCls = "text-xs font-bold text-gray-500 uppercase";
 
-export default function ImportModal({ open, onOpenChange, onImported }) {
+export default function ImportModal({ open, onOpenChange, onImported, fileType }) {
   const [projectName, setProjectName] = useState('');
   const [file, setFile] = useState(null);
   const [state, setState] = useState('idle');
   const [message, setMessage] = useState('');
 
   if (!open) return null;
+
+  const isExcel = fileType === 'excel';
+  const isMSProject = fileType === 'msproject';
+
+  const accept = isExcel ? '.xlsx' : isMSProject ? '.xml' : '.xlsx,.xml';
+  const title = isExcel ? 'Importer depuis Excel' : isMSProject ? 'Importer depuis MS Project' : 'Importer un projet';
+  const subtitle = isExcel ? 'Fichier .xlsx' : isMSProject ? 'Fichier XML exporté de MS Project' : 'Excel .xlsx ou MS Project XML';
+  const iconWrapCls = isExcel
+    ? 'p-2 bg-green-50 text-green-600 rounded-lg'
+    : isMSProject
+      ? 'p-2 bg-orange-50 text-orange-500 rounded-lg'
+      : 'p-2 bg-blue-50 text-blue-600 rounded-lg';
 
   const sourceLabel = file?.name?.toLowerCase().endsWith('.xml')
     ? 'MS Project XML'
@@ -72,12 +84,12 @@ export default function ImportModal({ open, onOpenChange, onImported }) {
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden">
         <div className="flex items-center justify-between p-6 border-b">
           <div className="flex items-center gap-2">
-            <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+            <div className={iconWrapCls}>
               <FileSpreadsheet className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-gray-900">Importer un projet</h2>
-              <p className="text-xs text-gray-400">Excel .xlsx ou MS Project XML</p>
+              <h2 className="text-lg font-bold text-gray-900">{title}</h2>
+              <p className="text-xs text-gray-400">{subtitle}</p>
             </div>
           </div>
           <button onClick={close} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
@@ -102,10 +114,10 @@ export default function ImportModal({ open, onOpenChange, onImported }) {
             <label className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-all group block">
               <Upload className="w-8 h-8 mx-auto mb-2 text-gray-300 group-hover:text-blue-500 transition-colors" />
               <p className="text-sm font-bold text-gray-700">{file ? file.name : 'Cliquez pour choisir un fichier'}</p>
-              <p className="text-xs text-gray-400 mt-1">Formats acceptés : .xlsx, .xml</p>
+              <p className="text-xs text-gray-400 mt-1">Formats acceptés : {accept.replace(/,/g, ', ')}</p>
               <input
                 type="file"
-                accept=".xlsx,.xml"
+                accept={accept}
                 className="hidden"
                 onChange={(e) => {
                   setFile(e.target.files?.[0] || null);

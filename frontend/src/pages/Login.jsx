@@ -21,7 +21,7 @@ const Login = () => {
         password
       });
 
-      // Save token AND user info in localStorage
+      // Save token AND user info (role, name...) in localStorage
       localStorage.setItem('token', response.data.token);
       localStorage.setItem('user', JSON.stringify(response.data.user));
 
@@ -35,7 +35,7 @@ const Login = () => {
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-[#0B1120] p-4 sm:p-8">
       <div className="flex flex-col md:flex-row w-full max-w-5xl bg-[#111827] rounded-3xl overflow-hidden shadow-2xl border border-white/5">
-
+        
         {/* Left Side: Illustration */}
         <div className="hidden md:block md:w-1/2 relative bg-linear-to-br from-[#ddeaff] to-[#E1E7F5] p-12">
           <div className="w-full h-full flex items-center justify-center">
@@ -106,7 +106,7 @@ const Login = () => {
               >
                 Se connecter
               </button>
-
+              
               <Link to="/register"
                 className="w-full inline-block text-center py-3 bg-[#E67E22] text-white font-bold rounded-xl hover:bg-[#D35400] transition-colors shadow-lg shadow-[#E67E22]/20">
                 Créer un compte

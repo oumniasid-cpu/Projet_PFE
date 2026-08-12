@@ -32,8 +32,8 @@ const STATUS_COLORS = {
   not_started: "#5F5E5A",
 };
 
-const FRAPPE_CDN_JS  = "https://cdn.jsdelivr.net/npm/frappe-gantt/dist/frappe-gantt.umd.js";
-const FRAPPE_CDN_CSS = "https://cdn.jsdelivr.net/npm/frappe-gantt/dist/frappe-gantt.css";
+const FRAPPE_CDN_JS  = "https://cdn.jsdelivr.net/npm/frappe-gantt@1.2.2/dist/frappe-gantt.umd.js";
+const FRAPPE_CDN_CSS = "https://cdn.jsdelivr.net/npm/frappe-gantt@1.2.2/dist/frappe-gantt.css";
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
@@ -134,6 +134,7 @@ export default function GanttChart({
       .gantt .bar-wrapper.bar-not-started .bar-progress { fill: #888780; }
       .gantt .bar-wrapper.bar-not-started .bar { fill: #F1EFE8; stroke: #888780; }
       .gantt .bar-label { font-size: 11px; font-family: inherit; }
+      .gantt .lower-text, .gantt .upper-text { font-size: 10px; font-family: inherit; }
       .gantt .today-highlight { fill: #FAEEDA; opacity: 0.35; }
       .gantt-container { font-family: inherit; }
     `;
@@ -147,11 +148,24 @@ export default function GanttChart({
 
     const frappeTasks = tasks.map(toFrappeTask);
 
+    // Vide le SVG avant de reconstruire pour éviter les barres dupliquées
+    // ou les listeners fantômes lors des re-render successifs.
+    svgRef.current.innerHTML = "";
+
     try {
       ganttRef.current = new window.Gantt(svgRef.current, frappeTasks, {
         view_mode:   viewMode,
         date_format: "YYYY-MM-DD",
         language:    "fr",
+
+        // Taille compacte : sans ces options, la lib utilise ses valeurs
+        // par défaut (souvent trop grandes, surtout avec plusieurs tâches).
+        bar_height:        16,
+        bar_corner_radius: 3,
+        padding:           10,
+        header_height:     42,
+        column_width:      viewMode === "Day" ? 28 : viewMode === "Week" ? 46 : viewMode === "Month" ? 90 : 130,
+        container_height:  480,
 
         on_click: (task) => {
           if (onTaskClick) onTaskClick(Number(task.id));
@@ -197,6 +211,13 @@ export default function GanttChart({
   useEffect(() => {
     buildGantt();
   }, [buildGantt]);
+
+  // Nettoyage au démontage du composant
+  useEffect(() => {
+    return () => {
+      if (svgRef.current) svgRef.current.innerHTML = "";
+    };
+  }, []);
 
   // Change view mode on existing instance if possible
   const handleViewMode = (mode) => {
@@ -324,8 +345,15 @@ export default function GanttChart({
         Glissez une barre pour modifier les dates · Glissez le coin droit de la progression pour mettre à jour l'avancement · Cliquez sur une barre pour modifier la tâche.
       </p>
 
-      {/* chart */}
-      <div style={{ overflowX: "auto", width: "100%", border: "0.5px solid var(--color-border-tertiary)", borderRadius: "var(--border-radius-lg)" }}>
+      {/* chart — ce <div> devient le conteneur de scroll UNIQUE de frappe-gantt
+          (la lib détecte le <svg> enfant, remonte à ce parent et lui applique
+          elle-même overflow:auto + container_height). On ne doit PAS ajouter
+          nos propres overflow/maxHeight ici sous peine de double scrollbar. */}
+      <div style={{
+        width: "100%",
+        border: "0.5px solid var(--color-border-tertiary)",
+        borderRadius: "var(--border-radius-lg)",
+      }}>
         <svg ref={svgRef} id="gantt-svg" />
       </div>
 
