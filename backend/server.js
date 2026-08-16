@@ -44,6 +44,7 @@ app.use("/api/projects", projectRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/import", importRoutes);
 app.use("/api", taskRoutes);
+app.use('/api/evm', require('./routes/evm'));
 
 
 // ======================

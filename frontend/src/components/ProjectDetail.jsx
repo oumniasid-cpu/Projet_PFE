@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ArrowLeft, CalendarDays, Clock, Target, Wallet } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import SideBar from './SideBar';
+import EVMCard from './EVMCard';
 
 const C = {
   primary: '#1d37c8',

@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import GanttChart from '../components/GanttChart';
 import Sidebar from '../components/SideBar';
+import EVMCard from './EVMCard';
 import {
   Chart as ChartJS,
   ArcElement, Tooltip, Legend,
@@ -657,8 +658,12 @@ export default function ProjectDetails({ projectId, onBack }) {
           transition={{ duration: 0.22 }}
         >
           {activeTab === 'analytics' && <AnalyticsTab />}
-          {activeTab === 'budget' && <BudgetPlaceholder project={project} />}
-
+          {activeTab === 'budget' && (
+            <div className="space-y-6">
+              <BudgetPlaceholder project={project} />
+              <EVMCard projectId={projectId} />
+            </div>
+          )}
           {activeTab === 'gantt' && (
             <div style={{ background: '#fff', padding: 28, borderRadius: 24, border: `0.5px solid ${C.lighter}` }}>
               {ganttLoading && ganttTasks.length === 0 ? (
@@ -673,7 +678,7 @@ export default function ProjectDetails({ projectId, onBack }) {
                   projectId={projectId}
                   authToken={authToken}
                   onUpdate={loadGanttTasks}
-                  onTaskClick={() => {}}
+                  onTaskClick={() => { }}
                 />
               )}
             </div>
