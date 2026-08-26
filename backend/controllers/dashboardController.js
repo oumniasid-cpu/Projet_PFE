@@ -1,5 +1,6 @@
 const pool = require('../db');
 const { getProjectVisibility, projectVisibilityClause } = require('../utils/projectVisibility');
+const { markAlertRead } = require('../services/alertsService');
 
 
 // =============================
@@ -31,10 +32,14 @@ exports.getDashboardStats = async (req, res) => {
       [seesAll, userId]
     );
 
+    // Compte les alertes ACTIVES (non résolues) de la vraie table `alerts`,
+    // limitées aux projets visibles par l'utilisateur (même scope que le
+    // reste du dashboard). Remplace l'ancien proxy basé sur project.status.
     const alerts = await pool.query(
       `SELECT COUNT(*)
-       FROM projects p
-       WHERE p.status IN ('at risk','delayed') AND ${scope}`,
+       FROM alerts a
+       JOIN projects p ON p.id = a.project_id
+       WHERE a.is_resolved = FALSE AND ${scope}`,
       [seesAll, userId]
     );
 
@@ -163,6 +168,69 @@ exports.getGanttData = async (req, res) => {
 
   } catch (error) {
     console.error("Gantt error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+
+
+/* =============================
+   Alerts (dashboard global — tous projets visibles par l'utilisateur)
+   ============================= */
+
+// GET /api/dashboard/alerts
+exports.getDashboardAlerts = async (req, res) => {
+  try {
+    const { seesAll, userId } = await getProjectVisibility(req.user.id);
+    const scope = projectVisibilityClause(1, 2);
+
+    const alerts = await pool.query(
+      `SELECT
+         a.id, a.project_id, a.indicator, a.severity, a.threshold,
+         a.indicator_value, a.message, a.is_read, a.is_resolved, a.created_at,
+         p.name AS project_name
+       FROM alerts a
+       JOIN projects p ON p.id = a.project_id
+       WHERE a.is_resolved = FALSE AND ${scope}
+       ORDER BY a.severity = 'critical' DESC, a.created_at DESC
+       LIMIT 10`,
+      [seesAll, userId]
+    );
+
+    res.json(alerts.rows);
+
+  } catch (error) {
+    console.error("Dashboard alerts error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// PATCH /api/dashboard/alerts/:alertId/read
+exports.markDashboardAlertRead = async (req, res) => {
+  try {
+    const { alertId } = req.params;
+    const { seesAll, userId } = await getProjectVisibility(req.user.id);
+    const scope = projectVisibilityClause(2, 3);
+
+    // On vérifie que l'alerte appartient bien à un projet visible par
+    // l'utilisateur avant de la marquer comme lue (pas de fuite entre comptes).
+    const owned = await pool.query(
+      `SELECT a.id
+       FROM alerts a
+       JOIN projects p ON p.id = a.project_id
+       WHERE a.id = $1 AND ${scope}`,
+      [alertId, seesAll, userId]
+    );
+
+    if (owned.rows.length === 0) {
+      return res.status(404).json({ message: "Alerte introuvable" });
+    }
+
+    const updated = await markAlertRead(pool, alertId);
+    res.json(updated);
+
+  } catch (error) {
+    console.error("Mark alert read error:", error);
     res.status(500).json({ message: "Server error" });
   }
 };

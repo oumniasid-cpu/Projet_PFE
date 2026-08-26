@@ -4,15 +4,53 @@ const authenticateToken = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
-const adminRoles = new Set(['admin', 'maitre_ouvrage', "maitre d'ouvrage", 'maître d’ouvrage']);
-const supervisorRoles = new Set(['superviseur', 'supervisor', 'chef chantier', 'chef_chantier']);
+// Normalise un rôle pour la comparaison : minuscules, sans accents,
+// apostrophes unifiées (' vs ’), espaces superflus retirés.
+// Ça évite les faux 403 causés par "Ingénieur Suivi" vs "ingenieur_suivi"
+// ou "maître d'ouvrage" (apostrophe courbe) vs "maitre d'ouvrage" (droite).
+const normalizeRole = (role) =>
+  String(role || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // retire les accents (é → e, î → i...)
+    .replace(/[\u2018\u2019\u0060]/g, "'") // unifie les apostrophes (’ ‘ ` → ')
+    .replace(/[_-]/g, ' ')           // unifie underscores/tirets en espace
+    .replace(/\s+/g, ' ')
+    .trim();
+
+// Rôles habilités à MODIFIER une tâche (avancement, coût réel, rapports,
+// dates réelles) — reprend exactement la liste du cahier des charges :
+// Chef chantier / conducteur de travaux, Ingénieur suivi, Architecte,
+// Maître d'ouvrage.
+const MANAGE_TASK_ROLES = new Set([
+  'admin',
+  "maitre d'ouvrage",
+  'maitre ouvrage',
+  'entrepreneur',
+  'chef chantier',
+  'conducteur de travaux',
+  'ingenieur suivi',
+  'ingenieur',
+  'architecte',
+  'superviseur',
+  'supervisor',
+].map(normalizeRole));
+
+// Rôles habilités à SUPPRIMER une tâche — plus restrictif, réservé aux
+// rôles de décision (maître d'ouvrage / admin).
+const DELETE_TASK_ROLES = new Set([
+  'admin',
+  "maitre d'ouvrage",
+  'maitre ouvrage',
+  'entrepreneur',
+].map(normalizeRole));
 
 const roleGuard = (allowedRoles) => async (req, res, next) => {
   try {
     const { rows } = await pool.query('SELECT role FROM users WHERE id = $1', [req.user.id]);
-    const role = String(rows[0]?.role || '').toLowerCase();
+    const role = normalizeRole(rows[0]?.role);
     if (!allowedRoles.has(role)) {
-      return res.status(403).json({ success: false, error: 'Accès non autorisé.' });
+      return res.status(403).json({ success: false, error: `Accès non autorisé pour le rôle "${rows[0]?.role || 'inconnu'}".` });
     }
     next();
   } catch (error) {
@@ -20,8 +58,8 @@ const roleGuard = (allowedRoles) => async (req, res, next) => {
   }
 };
 
-const canManageTasks = roleGuard(new Set([...adminRoles, ...supervisorRoles]));
-const canDeleteTasks = roleGuard(adminRoles);
+const canManageTasks = roleGuard(MANAGE_TASK_ROLES);
+const canDeleteTasks = roleGuard(DELETE_TASK_ROLES);
 
 const taskSelect = `
   SELECT
@@ -37,6 +75,8 @@ const taskSelect = `
   FROM tasks t
   LEFT JOIN users u ON u.id = t.responsible_user_id
 `;
+
+const ALLOWED_STATUSES = ['not_started', 'in_progress', 'done'];
 
 const computeDuration = (start, end, duration) => {
   if (duration !== undefined && duration !== null && duration !== '') return Number(duration);
@@ -180,6 +220,18 @@ router.patch('/tasks/:task_id', authenticateToken, canManageTasks, async (req, r
   ];
   const entries = Object.entries(req.body).filter(([key]) => allowed.includes(key));
   if (!entries.length) return res.status(400).json({ success: false, error: 'Aucun champ valide à mettre à jour.' });
+
+  if (req.body.status !== undefined && !ALLOWED_STATUSES.includes(req.body.status)) {
+    return res.status(400).json({ success: false, error: 'Statut invalide.' });
+  }
+
+  if (
+    req.body.parent_task_id !== undefined &&
+    req.body.parent_task_id !== null &&
+    String(req.body.parent_task_id) === String(req.params.task_id)
+  ) {
+    return res.status(400).json({ success: false, error: 'Une tâche ne peut pas être son propre parent.' });
+  }
 
   const client = await pool.connect();
   try {

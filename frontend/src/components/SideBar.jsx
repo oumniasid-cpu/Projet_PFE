@@ -1,16 +1,32 @@
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 
+// Lecture sécurisée de l'utilisateur depuis localStorage.
+// JSON.parse plante si la valeur stockée est la chaîne littérale
+// "undefined" (ex: un ancien localStorage.setItem('user', undefined) sans
+// JSON.stringify) — un cas qui casserait TOUTE l'app puisque SideBar est
+// rendu sur presque toutes les pages. On protège avec un try/catch et on
+// nettoie la clé corrompue si besoin.
+const getStoredUser = () => {
+  const raw = localStorage.getItem('user');
+  if (!raw || raw === 'undefined' || raw === 'null') return {};
+  try {
+    return JSON.parse(raw);
+  } catch {
+    localStorage.removeItem('user'); // évite de replanter à chaque rendu
+    return {};
+  }
+};
+
 const SideBar = () => {
   const navigate = useNavigate();
 
-  // Read user info from localStorage (set at login)
-  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const user = getStoredUser();
   const userName = user.name || user.username || 'User';
   const userRole = user.role || 'Member';
   const isAdmin = String(userRole).toLowerCase() === 'admin';
   // Initials avatar fallback
-  const initials = userName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+  const initials = userName.split(' ').filter(Boolean).map(w => w[0]).join('').toUpperCase().slice(0, 2) || 'U';
 
   const handleLogout = () => {
     localStorage.removeItem('token');

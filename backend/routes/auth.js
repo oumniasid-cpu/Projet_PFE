@@ -1,20 +1,10 @@
 const express = require('express');
 const router = express.Router();
-const jwt = require('jsonwebtoken');
 const { login, register, updateProfile } = require('../controllers/authController');
 
-// Middleware d'authentification
-const authenticateToken = (req, res, next) => {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-    if (!token) return res.status(401).json({ message: 'Access token required' });
-
-    jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
-        if (err) return res.status(403).json({ message: 'Invalid token' });
-        req.user = user;
-        next();
-    });
-};
+// Même middleware partagé que le reste de l'app (tasks.js, dashboard.js,
+// projects.js...) — plus de duplication locale de jwt.verify().
+const authenticateToken = require('../middleware/authMiddleware');
 
 // POST /api/auth/register
 router.post('/register', register);

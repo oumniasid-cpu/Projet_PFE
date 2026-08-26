@@ -13,6 +13,12 @@ router.get('/budget-history', authenticateToken, dashboardController.getBudgetHi
 // Recent projects
 router.get('/projects', authenticateToken, dashboardController.getProjects);
 
+// Active alerts
+router.get('/alerts', authenticateToken, dashboardController.getDashboardAlerts);
+
+// Mark an alert as read
+router.patch('/alerts/:alertId/read', authenticateToken, dashboardController.markDashboardAlertRead);
+
 // Gantt chart tasks
 router.get('/gantt/:projectId', authenticateToken, dashboardController.getGanttData);
 

@@ -15,7 +15,11 @@ export default function App() {
     <Router>
       <Routes>
         <Route path="/" element={<LandingPage />} />
-        <Route path="/Login" element={<LoginPage />} />
+        {/* Corrigé : "/Login" -> "/login" (minuscule), pour matcher tous les
+            navigate('/login') utilisés ailleurs (SideBar, Dashboard, Register,
+            Login lui-même). React Router est sensible à la casse par défaut :
+            une route "/Login" ne matche jamais un navigate('/login'). */}
+        <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
 
         <Route path="/dashboard" element={<PrivateRoute><DashboardPage /></PrivateRoute>} />

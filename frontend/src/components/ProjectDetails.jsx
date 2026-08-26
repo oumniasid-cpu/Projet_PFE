@@ -4,11 +4,13 @@ import {
   ArrowLeft, Calendar, Users, Clock,
   Layers, Wallet, FileText, AlertTriangle,
   Plus, ChevronRight, BarChart2, Target, TrendingDown, CalendarDays,
-  Upload, Search, FileCheck, Map, ClipboardList, MoreHorizontal
+  Upload, Search, FileCheck, Map, ClipboardList, MoreHorizontal, ListTodo
 } from 'lucide-react';
 import GanttChart from '../components/GanttChart';
 import Sidebar from '../components/SideBar';
 import EVMCard from './EVMCard';
+import TaskTable from './TaskTable';
+import TaskModal from './TaskModal';
 import {
   Chart as ChartJS,
   ArcElement, Tooltip, Legend,
@@ -452,6 +454,7 @@ export default function ProjectDetails({ projectId, onBack }) {
   const [ganttTasks, setGanttTasks] = useState([]);
   const [ganttLoading, setGanttLoading] = useState(false);
   const [ganttError, setGanttError] = useState(null);
+  const [taskModal, setTaskModal] = useState({ open: false, mode: 'add', task: null });
 
   const authToken = localStorage.getItem('token');
 
@@ -501,8 +504,22 @@ export default function ProjectDetails({ projectId, onBack }) {
   }, [projectId, authToken]);
 
   useEffect(() => {
-    if (activeTab === 'gantt' && projectId) loadGanttTasks();
+    if ((activeTab === 'gantt' || activeTab === 'tasks') && projectId) loadGanttTasks();
   }, [activeTab, projectId, loadGanttTasks]);
+
+  const handleDeleteTask = async (taskId) => {
+    try {
+      const res = await fetch(`http://localhost:5000/api/tasks/${taskId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (!res.ok) throw new Error(`Erreur ${res.status}`);
+      await loadGanttTasks();
+    } catch (e) {
+      console.error(e);
+      setGanttError("Impossible de supprimer la tâche.");
+    }
+  };
 
   if (loading) return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>
@@ -527,6 +544,7 @@ export default function ProjectDetails({ projectId, onBack }) {
   const tabs = [
     { id: 'analytics', label: 'Analytics', icon: BarChart2 },
     { id: 'budget', label: 'Budget tracking', icon: Wallet },
+    { id: 'tasks', label: 'Tâches', icon: ListTodo },
     { id: 'gantt', label: 'Gantt planning', icon: Layers },
     { id: 'daily-reports', label: 'Daily reports', icon: FileText },
     { id: 'alerts', label: 'AI alerts', icon: AlertTriangle },
@@ -664,6 +682,22 @@ export default function ProjectDetails({ projectId, onBack }) {
               <EVMCard projectId={projectId} />
             </div>
           )}
+          {activeTab === 'tasks' && (
+            <div>
+              {ganttLoading && ganttTasks.length === 0 ? (
+                <p style={{ color: C.mid, textAlign: 'center', padding: 24 }}>Chargement des tâches…</p>
+              ) : ganttError ? (
+                <p style={{ color: '#b91c1c', textAlign: 'center', padding: 24 }}>{ganttError}</p>
+              ) : (
+                <TaskTable
+                  tasks={ganttTasks}
+                  onAdd={() => setTaskModal({ open: true, mode: 'add', task: null })}
+                  onEdit={(task) => setTaskModal({ open: true, mode: 'edit', task })}
+                  onDelete={handleDeleteTask}
+                />
+              )}
+            </div>
+          )}
           {activeTab === 'gantt' && (
             <div style={{ background: '#fff', padding: 28, borderRadius: 24, border: `0.5px solid ${C.lighter}` }}>
               {ganttLoading && ganttTasks.length === 0 ? (
@@ -752,6 +786,15 @@ export default function ProjectDetails({ projectId, onBack }) {
 
           {activeTab === 'documents' && <DocumentsTab projectId={projectId} />}
         </motion.div>
+        <TaskModal
+          open={taskModal.open}
+          mode={taskModal.mode}
+          projectId={projectId}
+          task={taskModal.task}
+          tasks={ganttTasks}
+          onClose={() => setTaskModal({ open: false, mode: 'add', task: null })}
+          onSaved={loadGanttTasks}
+        />
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import AlertsCard from "../components/AlertsCard";
 import {
   Building2,
   DollarSign,
@@ -47,9 +48,10 @@ const getStatus = (status) =>
   STATUS_MAP[status?.toLowerCase()] || { label: status || '—', bg: 'bg-gray-100', text: 'text-gray-600' };
 
 // ─── API fetch helper — throws on non-OK, redirects on 401 ───────────────────
-const apiFetch = async (path, token, navigate) => {
+const apiFetch = async (path, token, navigate, options = {}) => {
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { Authorization: `Bearer ${token}` },
+    ...options,
+    headers: { Authorization: `Bearer ${token}`, ...(options.headers || {}) },
   });
   if (res.status === 401) { navigate('/login'); return null; }
   if (!res.ok) {
@@ -67,11 +69,12 @@ const Dashboard = () => {
   const [stats,         setStats]         = useState(null);   // /stats
   const [budgetHistory, setBudgetHistory] = useState([]);     // /budget-history
   const [projects,      setProjects]      = useState([]);     // /projects
+  const [alerts,        setAlerts]        = useState([]);     // /alerts
   const [selectedProjectId, setSelectedProjectId] = useState(null);
   const [ganttProjectId]                  = useState(null);   // /gantt/:id — set when user opens a project
 
   const [loading, setLoading] = useState(true);
-  const [errors,  setErrors]  = useState({});                 // { stats, budgetHistory, projects }
+  const [errors,  setErrors]  = useState({});                 // { stats, budgetHistory, projects, alerts }
 
   // ── Fetch all endpoints in parallel ─────────────────────────────────────────
   useEffect(() => {
@@ -82,11 +85,12 @@ const Dashboard = () => {
       setLoading(true);
       setErrors({});
 
-      // Run all 3 calls at the same time — failure in one doesn't block the others
-      const [statsRes, budgetRes, projectsRes] = await Promise.allSettled([
+      // Run all 4 calls at the same time — failure in one doesn't block the others
+      const [statsRes, budgetRes, projectsRes, alertsRes] = await Promise.allSettled([
         apiFetch('/stats',          token, navigate),
         apiFetch('/budget-history', token, navigate),
         apiFetch('/projects',       token, navigate),
+        apiFetch('/alerts',         token, navigate),
       ]);
 
       const newErrors = {};
@@ -119,6 +123,14 @@ const Dashboard = () => {
           setProjects(statsRes.value.recentProjects);
           delete newErrors.projects;
         }
+      }
+
+      if (alertsRes.status === 'fulfilled' && alertsRes.value) {
+        // /alerts returns an array directly (dashboardController.getDashboardAlerts)
+        setAlerts(Array.isArray(alertsRes.value) ? alertsRes.value : []);
+      } else if (alertsRes.status === 'rejected') {
+        newErrors.alerts = alertsRes.reason?.message || 'Erreur alertes';
+        // Non bloquant : pas de fallback nécessaire, la section s'affiche vide
       }
 
       setErrors(newErrors);
@@ -167,6 +179,20 @@ const Dashboard = () => {
     ? ((metrics.total_budget - metrics.total_spent) / metrics.total_budget) * 100
     : 0;
   const isUnderBudget = budgetHealth >= 0;
+
+  // Marque une alerte comme lue côté backend (persistant), puis met à jour
+  // l'état local pour la faire disparaître immédiatement de la liste.
+  const handleAlertRead = async (alertId) => {
+    const token = localStorage.getItem('token');
+    try {
+      await apiFetch(`/alerts/${alertId}/read`, token, navigate, { method: 'PATCH' });
+      setAlerts((prev) => prev.filter((a) => a.id !== alertId));
+    } catch (err) {
+      console.error("Erreur lors du marquage de l'alerte comme lue:", err);
+      // On ne retire pas l'alerte localement si la persistance a échoué,
+      // pour éviter une désynchronisation avec la base.
+    }
+  };
 
   if (selectedProjectId) {
     return <ProjectDetails projectId={selectedProjectId} onBack={() => setSelectedProjectId(null)} />;
@@ -271,6 +297,13 @@ const Dashboard = () => {
 
           </div>
 
+          {/* ── Alertes actives — data from /alerts (dashboardController.getDashboardAlerts) ── */}
+          <AlertsCard
+            alerts={alerts}
+            onMarkRead={handleAlertRead}
+            onSelect={(projectId) => setSelectedProjectId(projectId)}
+          />
+
           {/* ── Charts Row ───────────────────────────────────────────────────── */}
           <div className="grid lg:grid-cols-3 gap-6">
 
@@ -297,7 +330,7 @@ const Dashboard = () => {
                 <EmptyState message="Aucune donnée budgétaire disponible." height="h-72" />
               ) : (
                 <div className="h-72">
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                     <AreaChart data={budgetHistory}>
                       <defs>
                         <linearGradient id="gradBudget" x1="0" y1="0" x2="0" y2="1">
@@ -335,7 +368,7 @@ const Dashboard = () => {
                 <EmptyState message="Aucun projet récent." height="h-72" />
               ) : (
                 <div className="h-72">
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                     <BarChart data={progressData} layout="vertical" margin={{ left: 0, right: 10 }}>
                       <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f0f0f0" />
                       <XAxis

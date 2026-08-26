@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState, useRef } from 'react';
 import SideBar from '../components/SideBar';
-import { NewProject } from '../components/newProject';
+import { NewProject } from '../components/NewProject';
 import ProjectDetails from '../components/ProjectDetails';
 import ImportModal from '../components/ImportModal';
 
@@ -217,7 +217,11 @@ const Projects = () => {
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-1.5 text-xs text-gray-600">
                             <MapPin className="w-3 h-3 text-red-400" />
-                            <span>{p.location_city}, {p.location_country}</span>
+                            <span>
+                              {p.location_city || p.location_country
+                                ? `${p.location_city || '—'}, ${p.location_country || ''}`
+                                : '—'}
+                            </span>
                           </div>
                         </td>
                         <td className="px-6 py-4">

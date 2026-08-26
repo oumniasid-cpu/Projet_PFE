@@ -1,4 +1,5 @@
 const pool = require('../db');
+const { createAlertsIfNew } = require('../services/alertsService');
 
 /**
  * Calcule les indicateurs EVM (Earned Value Management) à partir des tâches d'un projet.
@@ -68,7 +69,8 @@ function round3(n) {
 /**
  * GET /api/evm/:projectId?date=YYYY-MM-DD
  * Retourne les indicateurs EVM calculés pour un projet, à une date d'analyse donnée
- * (aujourd'hui par défaut).
+ * (aujourd'hui par défaut). Vérifie aussi automatiquement les seuils d'alerte
+ * (IPC/IPD) et crée les alertes correspondantes si nécessaire (étape 5).
  */
 exports.getProjectEVM = async (req, res) => {
     try {
@@ -105,12 +107,31 @@ exports.getProjectEVM = async (req, res) => {
             delayEstimateDays = Math.round((1 - indicators.IPD) * totalDuration);
         }
 
+        // --- Étape 5 : vérification automatique des seuils IPC/IPD ---
+        // On ne déclenche l'évaluation que si IPC et IPD ont pu être calculés
+        // (sinon CR ou VP valent 0 et la comparaison n'a pas de sens).
+        let newAlerts = [];
+        if (indicators.IPC !== null && indicators.IPD !== null) {
+            try {
+                newAlerts = await createAlertsIfNew(pool, Number(projectId), {
+                    IPC: indicators.IPC,
+                    IPD: indicators.IPD,
+                    retard_jours: delayEstimateDays ?? 0,
+                });
+            } catch (alertErr) {
+                // On ne fait jamais échouer la réponse EVM à cause des alertes :
+                // on log seulement, le calcul EVM reste la priorité de cet endpoint.
+                console.error('Alert evaluation error:', alertErr);
+            }
+        }
+
         res.json({
             projectId: Number(projectId),
             analysisDate: analysisDate.toISOString().split('T')[0],
             indicators,
             delayEstimateDays,
             taskCount: tasksResult.rows.length,
+            newAlerts,
         });
     } catch (err) {
         console.error('EVM calculation error:', err);

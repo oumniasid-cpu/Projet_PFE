@@ -2,27 +2,18 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const projectController = require('../controllers/projectController');
-const jwt = require('jsonwebtoken');
 
-// Middleware d'authentification
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-  if (!token) return res.status(401).json({ message: 'Access token required' });
-
-  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
-    if (err) return res.status(403).json({ message: 'Invalid token' });
-    req.user = user;
-    next();
-  });
-};
+// Même middleware partagé que tasks.js et dashboard.js — c'était la source
+// du 403 sur GET /api/projects/:id (le doublon local pouvait diverger du
+// middleware partagé et rejeter des tokens pourtant valides).
+const authenticateToken = require('../middleware/authMiddleware');
 
 // Configuration de stockage temporaire pour le fichier .mpp
 const upload = multer({ dest: 'uploads/' });
 
 router.post('/import-mpp', upload.single('mppFile'), projectController.importMPP);
 
-// ROUTES — toutes protégées maintenant
+// ROUTES — toutes protégées
 router.get('/', authenticateToken, projectController.getAllProjects);
 router.get('/:id', authenticateToken, projectController.getProjectById);
 router.post('/', authenticateToken, async (req, res) => {
