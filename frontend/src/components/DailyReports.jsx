@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   FileText, Send, AlertCircle, CheckCircle2, 
-  Loader2, ListChecks, ChevronDown, ClipboardList
+  Loader2, ListChecks, ChevronDown, ClipboardList, Sparkles
 } from 'lucide-react';
 import SideBar from './SideBar';
 
@@ -28,6 +28,7 @@ const DailyReports = () => {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
   
   const fileInputRef = useRef(null); // Pour déclencher l'input file caché
@@ -96,14 +97,100 @@ const DailyReports = () => {
     }
   };
 
+
+
+  const envoyerRapport = async () => {
+  try {
+    const res = await fetch('http://localhost:5000/api/envoyer-rapport', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        emailChefProjet: 'chef@example.com', // ou depuis un state/formulaire
+        rapportTexte: rapportGenere, // le texte généré par Gemini
+        nomProjet: nomDuProjet,
+      }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      alert('Rapport envoyé avec succès !');
+    } else {
+      alert('Erreur lors de l\'envoi');
+    }
+  } catch (error) {
+    console.error(error);
+    alert('Erreur de connexion au serveur');
+  }
+};
+
+
+
+  // Envoie les notes brutes actuellement dans "Realised work" à l'IA, qui
+  // renvoie un paragraphe de rapport rédigé. On remplace le contenu du
+  // textarea par ce texte — l'utilisateur peut encore le relire/modifier
+  // avant l'envoi final, qui reste un geste séparé (bouton "Envoyer").
+  const handleGenerateAI = async () => {
+    if (!formData.project_id) {
+      setMessage({ type: 'error', text: "Sélectionnez d'abord un projet." });
+      return;
+    }
+    if (!formData.work_done.trim()) {
+      setMessage({ type: 'error', text: "Écrivez quelques notes rapides avant de générer le rapport." });
+      return;
+    }
+
+    setGenerating(true);
+    setMessage({ type: '', text: '' });
+    try {
+      const response = await fetch('http://localhost:5000/api/reports/generate-ai', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('token')}`,
+        },
+        body: JSON.stringify({
+          project_id: formData.project_id,
+          notes: formData.work_done,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Erreur lors de la génération du rapport.");
+
+      setFormData((prev) => ({ ...prev, work_done: result.report }));
+      setMessage({ type: 'success', text: "Rapport généré — relisez-le avant l'envoi." });
+    } catch (err) {
+      setMessage({ type: 'error', text: err.message });
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSubmitting(true);
-    setTimeout(() => {
+    setMessage({ type: '', text: '' });
+    try {
+      const response = await fetch('http://localhost:5000/api/reports/add', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('token')}`,
+        },
+        body: JSON.stringify({
+          project_id: formData.project_id,
+          content: formData.work_done,
+          tasks: [],
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Erreur lors de l'envoi du rapport.");
+
+      setMessage({ type: 'success', text: 'Rapport envoyé avec succès !' });
+      setFormData((prev) => ({ ...prev, work_done: '' }));
+    } catch (err) {
+      setMessage({ type: 'error', text: err.message });
+    } finally {
       setSubmitting(false);
-      setMessage({ type: "success", text: "Rapport envoyé avec succès !" });
-    }, 1500);
-  
+    }
   };
 
 
@@ -198,15 +285,35 @@ const DailyReports = () => {
           </div>
 
           <div className="space-y-2">
-            <label className="text-xs font-bold uppercase tracking-wide" style={{ color: "#1d37c8" }}>
-              Realised work
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold uppercase tracking-wide" style={{ color: "#1d37c8" }}>
+                Realised work
+              </label>
+              <button
+                type="button"
+                onClick={handleGenerateAI}
+                disabled={generating || !formData.project_id || !formData.work_done.trim()}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all"
+                style={{
+                  background: generating ? "#e6f1fb" : "#f0e6fb",
+                  color: generating ? "#85b7eb" : "#7c3aed",
+                  border: `1px solid ${generating ? "#b5d4f4" : "#ddd6fe"}`,
+                  cursor: generating || !formData.project_id || !formData.work_done.trim() ? "not-allowed" : "pointer",
+                  opacity: !formData.project_id || !formData.work_done.trim() ? 0.6 : 1,
+                }}
+                title="Transforme vos notes rapides en rapport rédigé"
+              >
+                {generating
+                  ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Génération...</>
+                  : <><Sparkles className="w-3.5 h-3.5" /> Générer avec l'IA</>}
+              </button>
+            </div>
             <textarea
               required
               rows={4}
               value={formData.work_done}
               onChange={e => setFormData({ ...formData, work_done: e.target.value })}
-              placeholder="Décrivez les tâches accomplies..."
+              placeholder="Notez rapidement ce qui a été fait aujourd'hui, puis cliquez sur « Générer avec l'IA » pour en faire un rapport rédigé..."
               className="w-full p-4 rounded-xl text-sm outline-none transition-all resize-none"
               style={{
                 background: "#e6f1fb",
@@ -226,7 +333,7 @@ const DailyReports = () => {
           >
             {submitting
               ? <Loader2 className="w-5 h-5 animate-spin" />
-              : <><Send className="w-5 h-5" /> Envoyer le rapport</>}
+              : <><Send onClick={envoyerRapport} className="w-5 h-5" /> Envoyer le rapport</>}
           </button>
         </form>
       </div>

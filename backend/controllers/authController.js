@@ -40,7 +40,7 @@ exports.register = async (req, res) => {
 // devra passer par un futur endpoint réservé aux admins (/api/users/:id/role).
 exports.updateProfile = async (req, res) => {
   const userId = req.user.id;
-  const { name, email, password } = req.body;
+  const { name, email, phone } = req.body; // password retiré : voir changePassword()
 
   try {
     const fields = [];
@@ -64,13 +64,11 @@ exports.updateProfile = async (req, res) => {
       values.push(email);
     }
 
-    if (password !== undefined && password !== '') {
-      if (password.length < 6) {
-        return res.status(400).json({ message: 'Le mot de passe doit contenir au moins 6 caractères.' });
-      }
-      const hashedPassword = await bcrypt.hash(password, 10);
-      fields.push(`password = $${i++}`);
-      values.push(hashedPassword);
+    // Chaîne vide autorisée (pour pouvoir effacer le numéro) : on ne teste
+    // que `undefined`, contrairement à name/email au-dessus.
+    if (phone !== undefined) {
+      fields.push(`phone = $${i++}`);
+      values.push(phone);
     }
 
     if (fields.length === 0) {
@@ -84,7 +82,7 @@ exports.updateProfile = async (req, res) => {
       UPDATE users
       SET ${fields.join(', ')}
       WHERE id = $${i}
-      RETURNING id, email, name, role
+      RETURNING id, email, name, role, phone, notification_prefs
     `;
     const result = await pool.query(query, values);
 
@@ -92,15 +90,141 @@ exports.updateProfile = async (req, res) => {
       return res.status(404).json({ message: 'Utilisateur non trouvé.' });
     }
 
-    res.json({
-      message: 'Profil mis à jour avec succès.',
-      user: result.rows[0],
-    });
+    res.json({ message: 'Profil mis à jour avec succès.', user: result.rows[0] });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error' });
   }
 };
+
+
+// GET /api/auth/profile — le login ne renvoie que id/email/name/role ;
+// Settings.jsx a besoin de phone + notification_prefs en plus.
+exports.getProfile = async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT id, email, name, role, phone, notification_prefs FROM users WHERE id = $1',
+      [req.user.id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Utilisateur non trouvé.' });
+    }
+    res.json({ user: result.rows[0] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// PUT /api/auth/password — exige l'ancien mot de passe.
+exports.changePassword = async (req, res) => {
+  const userId = req.user.id;
+  const { currentPassword, newPassword } = req.body;
+
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ message: 'Mot de passe actuel et nouveau mot de passe requis.' });
+  }
+  if (newPassword.length < 6) {
+    return res.status(400).json({ message: 'Le nouveau mot de passe doit contenir au moins 6 caractères.' });
+  }
+
+  try {
+    const result = await pool.query('SELECT password FROM users WHERE id = $1', [userId]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Utilisateur non trouvé.' });
+    }
+
+    const isMatch = await bcrypt.compare(currentPassword, result.rows[0].password);
+    if (!isMatch) {
+      return res.status(400).json({ message: 'Mot de passe actuel incorrect.' });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await pool.query(
+      'UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+      [hashedPassword, userId]
+    );
+
+    res.json({ message: 'Mot de passe modifié avec succès.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// PUT /api/auth/notifications — fusionne avec le JSONB existant (|| en
+// Postgres) pour ne jamais écraser une préférence non envoyée.
+exports.updateNotificationPrefs = async (req, res) => {
+  const userId = req.user.id;
+  const { email_alerts, budget_alerts, weekly_reports } = req.body;
+
+  const patch = {};
+  if (email_alerts !== undefined) patch.email_alerts = !!email_alerts;
+  if (budget_alerts !== undefined) patch.budget_alerts = !!budget_alerts;
+  if (weekly_reports !== undefined) patch.weekly_reports = !!weekly_reports;
+
+  if (Object.keys(patch).length === 0) {
+    return res.status(400).json({ message: 'Aucune préférence à mettre à jour.' });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE users
+       SET notification_prefs = notification_prefs || $1::jsonb,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2
+       RETURNING notification_prefs`,
+      [JSON.stringify(patch), userId]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Utilisateur non trouvé.' });
+    }
+    res.json({ message: 'Préférences mises à jour.', notification_prefs: result.rows[0].notification_prefs });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// DELETE /api/auth/account — protégé par le mot de passe (pas juste le
+// token), et bloqué si l'utilisateur possède encore des projets, pour ne
+// pas laisser de projets orphelins.
+exports.deleteAccount = async (req, res) => {
+  const userId = req.user.id;
+  const { password } = req.body;
+
+  if (!password) {
+    return res.status(400).json({ message: 'Mot de passe requis pour confirmer la suppression.' });
+  }
+
+  try {
+    const result = await pool.query('SELECT password FROM users WHERE id = $1', [userId]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Utilisateur non trouvé.' });
+    }
+
+    const isMatch = await bcrypt.compare(password, result.rows[0].password);
+    if (!isMatch) {
+      return res.status(400).json({ message: 'Mot de passe incorrect.' });
+    }
+
+    // ⚠️ Ajuste `owner_id` si la colonne s'appelle autrement dans ta table
+    // `projects` (je ne l'ai pas dans les fichiers partagés jusqu'ici).
+    const owned = await pool.query('SELECT COUNT(*) FROM projects WHERE owner_id = $1', [userId]);
+    if (parseInt(owned.rows[0].count) > 0) {
+      return res.status(409).json({
+        message: "Impossible de supprimer ce compte : vous êtes encore propriétaire de projets. Transférez-les ou supprimez-les d'abord.",
+      });
+    }
+
+    await pool.query('DELETE FROM users WHERE id = $1', [userId]);
+    res.json({ message: 'Compte supprimé avec succès.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
 
 exports.login = async (req, res) => {
   const { email, password } = req.body;

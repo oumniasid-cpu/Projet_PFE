@@ -2,6 +2,22 @@ const pool = require('../db');
 const { getProjectVisibility, projectVisibilityClause } = require('../utils/projectVisibility');
 const { markAlertRead } = require('../services/alertsService');
 
+// Sous-requête réutilisée partout où on a besoin de l'avancement d'un
+// projet : identique à projectController.getProjectById (moyenne pondérée
+// par durée des progress_percent des tâches). Sans ça, le dashboard lisait
+// la colonne projects.progress, jamais mise à jour, d'où le "0%" affiché
+// alors que la page projet montre 23% (calculé en direct depuis les tâches).
+const PROGRESS_JOIN = `
+  LEFT JOIN LATERAL (
+    SELECT ROUND(
+      SUM(COALESCE(t.progress_percent, 0) * GREATEST(COALESCE(t.duration_days, 1), 1))
+      / NULLIF(SUM(GREATEST(COALESCE(t.duration_days, 1), 1)), 0)
+    )::int AS overall_progress
+    FROM tasks t
+    WHERE t.project_id = p.id
+  ) progress_calc ON true
+`;
+const PROGRESS_EXPR = `COALESCE(progress_calc.overall_progress, p.progress, 0)`;
 
 // =============================
 // Dashboard Stats
@@ -16,6 +32,15 @@ exports.getDashboardStats = async (req, res) => {
       [seesAll, userId]
     );
 
+    // Total réel des projets visibles par l'utilisateur (même scope,
+    // donc respecte bien "seulement les projets liés à cet utilisateur").
+
+
+    const totalProjects = await pool.query(
+      `SELECT COUNT(*) FROM projects p WHERE ${scope}`,
+      [seesAll, userId]
+    );
+
     const budget = await pool.query(
       `SELECT
         COALESCE(SUM(p.budget_total),0) AS total_budget,
@@ -25,9 +50,12 @@ exports.getDashboardStats = async (req, res) => {
       [seesAll, userId]
     );
 
+    // Moyenne du VRAI avancement (calculé depuis les tâches), pas de la
+    // colonne stockée.
     const avgProgress = await pool.query(
-      `SELECT COALESCE(ROUND(AVG(p.progress),0), 0) AS avg_progress
+      `SELECT COALESCE(ROUND(AVG(${PROGRESS_EXPR})), 0) AS avg_progress
        FROM projects p
+       ${PROGRESS_JOIN}
        WHERE ${scope}`,
       [seesAll, userId]
     );
@@ -43,9 +71,13 @@ exports.getDashboardStats = async (req, res) => {
       [seesAll, userId]
     );
 
+    // BarChart "Avancement par Projet" : même calcul que la page projet.
     const progressProjects = await pool.query(
-      `SELECT p.name, p.progress
+      `SELECT
+         p.name,
+         ${PROGRESS_EXPR} AS progress
        FROM projects p
+       ${PROGRESS_JOIN}
        WHERE ${scope}
        ORDER BY p.updated_at DESC
        LIMIT 4`,
@@ -55,6 +87,7 @@ exports.getDashboardStats = async (req, res) => {
     res.json({
       metrics: {
         active_projects: parseInt(activeProjects.rows[0].count),
+        total_projects: parseInt(totalProjects.rows[0].count),
         total_budget: parseFloat(budget.rows[0].total_budget),
         total_spent: parseFloat(budget.rows[0].total_spent),
         avg_progress: parseInt(avgProgress.rows[0].avg_progress),
@@ -80,16 +113,29 @@ exports.getBudgetHistory = async (req, res) => {
     const { seesAll, userId } = await getProjectVisibility(req.user.id);
     const scope = projectVisibilityClause(1, 2);
 
+    // 1) Somme des coûts par mois de fin planifiée (une tâche = un mois)
+    // 2) Cumul mois par mois via SUM() OVER (ORDER BY period) — c'est ce
+    //    cumul qui rend le graphe "Dépenses cumulées vs budget prévu" réel,
+    //    au lieu du regroupement par mois de création de projet d'avant.
     const history = await pool.query(
-      `SELECT
-        TO_CHAR(p.created_at, 'YYYY-MM')  AS period,
-        TO_CHAR(p.created_at, 'Mon YY')   AS month,
-        COALESCE(SUM(p.budget_total), 0)  AS budget,
-        COALESCE(SUM(p.budget_spent), 0)  AS spent
-      FROM projects p
-      WHERE ${scope}
-      GROUP BY period, month
-      ORDER BY period`,
+      `WITH monthly AS (
+         SELECT
+           TO_CHAR(t.planned_end, 'YYYY-MM') AS period,
+           TO_CHAR(t.planned_end, 'Mon YY')  AS month,
+           COALESCE(SUM(t.planned_cost), 0)  AS month_budget,
+           COALESCE(SUM(t.actual_cost), 0)   AS month_spent
+         FROM tasks t
+         JOIN projects p ON p.id = t.project_id
+         WHERE t.planned_end IS NOT NULL AND ${scope}
+         GROUP BY period, month
+       )
+       SELECT
+         period,
+         month,
+         SUM(month_budget) OVER (ORDER BY period) AS budget,
+         SUM(month_spent)  OVER (ORDER BY period) AS spent
+       FROM monthly
+       ORDER BY period`,
       [seesAll, userId]
     );
 
@@ -106,7 +152,6 @@ exports.getBudgetHistory = async (req, res) => {
 };
 
 
-
 /* =============================
    Projects List
    ============================= */
@@ -116,16 +161,20 @@ exports.getProjects = async (req, res) => {
     const { seesAll, userId } = await getProjectVisibility(req.user.id);
     const scope = projectVisibilityClause(1, 2);
 
+    // Table "Projets Récents" : même calcul d'avancement que
+    // projectController.getProjectById, pour ne plus afficher 0% pendant
+    // que la page projet affiche 23% pour le même projet.
     const projects = await pool.query(
       `SELECT
         p.id,
         p.name,
         p.client_name AS client,
-        p.progress,
+        ${PROGRESS_EXPR} AS progress,
         p.status,
         p.budget_total,
         p.budget_spent
       FROM projects p
+      ${PROGRESS_JOIN}
       WHERE ${scope}
       ORDER BY p.created_at DESC
       LIMIT 10`,

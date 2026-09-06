@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   ArrowLeft, Calendar, Users, Clock,
@@ -44,7 +45,17 @@ const axis = {
   border: { display: false },
 };
 
-// ── CHART LEGEND ───────────────────────────────────────────
+// ── CURRENCY FORMAT (Dinar Algérien) ────────────────────────
+// budgetByTask.estimated/actual come straight from planned_cost/actual_cost
+// in DA (raw amounts, not pre-scaled to millions like the old demo data),
+// so the suffix (K/M) must be picked from the real magnitude of each value
+// instead of being hardcoded.
+const formatDA = (v) => {
+  const n = Number(v) || 0;
+  if (Math.abs(n) >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M DA';
+  if (Math.abs(n) >= 1_000) return (n / 1_000).toFixed(1).replace(/\.0$/, '') + 'K DA';
+  return n.toLocaleString('fr-FR') + ' DA';
+};
 const ChartLegend = ({ items }) => (
   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 12 }}>
     {items.map(({ color, label, dashed }) => (
@@ -75,22 +86,125 @@ const StatCard = ({ icon: Icon, label, value, desc }) => (
 );
 
 // ── ANALYTICS TAB ──────────────────────────────────────────
-const AnalyticsTab = () => {
+const AnalyticsTab = ({ projectId, authToken, project }) => {
+  const [taskStatus, setTaskStatus] = useState(null);
+  const [progressData, setProgressData] = useState(null);
+  const [budgetData, setBudgetData] = useState(null);
+  // NEW: on-time rate + reports count, sourced from the consolidated
+  // /analytics endpoint (the only place these two numbers are computed).
+  const [summary, setSummary] = useState(null);
+  const [statusLoading, setStatusLoading] = useState(true);
+  const [statusError, setStatusError] = useState(null);
+
+  // UPDATED: Fetch all analytics data in one effect
+  useEffect(() => {
+    if (!projectId) return;
+    let cancelled = false;
+
+    const load = async () => {
+      setStatusLoading(true);
+      setStatusError(null);
+      try {
+        const headers = { Authorization: `Bearer ${authToken}` };
+
+        // 1. Task status
+        const statusRes = await fetch(
+          `http://localhost:5000/api/projects/${projectId}/analytics/task-status`,
+          { headers }
+        );
+        if (!statusRes.ok) throw new Error(`Task status error ${statusRes.status}`);
+        const statusData = await statusRes.json();
+        if (!cancelled) setTaskStatus(statusData);
+
+        // 2. Progress over time (new endpoint)
+        const progressRes = await fetch(
+          `http://localhost:5000/api/projects/${projectId}/analytics/progress-over-time`,
+          { headers }
+        );
+        if (progressRes.ok) {
+          const prog = await progressRes.json();
+          if (!cancelled) setProgressData(prog);
+        }
+
+        // 3. Budget breakdown (new endpoint)
+        const budgetRes = await fetch(
+          `http://localhost:5000/api/projects/${projectId}/analytics/budget-breakdown`,
+          { headers }
+        );
+        if (budgetRes.ok) {
+          const budget = await budgetRes.json();
+          if (!cancelled) setBudgetData(budget);
+        }
+
+        // 4. On-time rate + reports count (consolidated endpoint — the only
+        // one that computes these two figures server-side)
+        const summaryRes = await fetch(
+          `http://localhost:5000/api/projects/${projectId}/analytics`,
+          { headers }
+        );
+        if (summaryRes.ok) {
+          const s = await summaryRes.json();
+          if (!cancelled) setSummary(s);
+        }
+      } catch (e) {
+        console.error(e);
+        if (!cancelled) setStatusError("Impossible de charger les données analytiques.");
+      } finally {
+        if (!cancelled) setStatusLoading(false);
+      }
+    };
+
+    load();
+    return () => { cancelled = true; };
+  }, [projectId, authToken]);
+
+  // Variance budgétaire réelle du projet (pas seulement le top 6 tâches
+  // utilisé pour le graphique Bar) : (dépensé - estimé) / estimé.
+  // Négatif = sous le budget, positif = dépassement.
+  const budgetVariance = project && Number(project.budget_total) > 0
+    ? ((Number(project.budget_spent) - Number(project.budget_total)) / Number(project.budget_total)) * 100
+    : null;
+
   const card = {
     background: '#fff', borderRadius: 24,
     border: `0.5px solid ${C.lighter}`, padding: 24,
   };
 
+  const totalTasks = taskStatus
+    ? taskStatus.not_started + taskStatus.in_progress + taskStatus.done
+    : 0;
+
   const donutData = {
-    labels: ['On Track', 'At Risk', 'Delayed', 'Completed'],
+    labels: ['Non commencées', 'En cours', 'Terminées'],
     datasets: [{
-      data: [2, 1, 1, 1],
-      backgroundColor: [C.primary, C.mid, C.light, C.lighter],
+      data: taskStatus
+        ? [taskStatus.not_started, taskStatus.in_progress, taskStatus.done]
+        : [0, 0, 0],
+      backgroundColor: [C.lighter, C.mid, C.primary],
       borderWidth: 0, hoverOffset: 4,
     }],
   };
 
-  const lineData = {
+  // UPDATED: Use real progress data if available, else fallback
+  const lineData = progressData ? {
+    labels: progressData.labels,
+    datasets: [
+      {
+        label: 'Actual Progress',
+        data: progressData.actual,
+        borderColor: C.primary,
+        backgroundColor: 'rgba(29,55,200,0.08)',
+        fill: true, tension: 0.4, pointRadius: 3,
+        pointBackgroundColor: C.primary, borderWidth: 2,
+      },
+      {
+        label: 'Target',
+        data: progressData.target,
+        borderColor: C.light, borderDash: [5, 4],
+        fill: false, tension: 0.4, pointRadius: 0, borderWidth: 1.5,
+      },
+    ],
+  } : {
     labels: ['May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct'],
     datasets: [
       {
@@ -110,11 +224,17 @@ const AnalyticsTab = () => {
     ],
   };
 
-  const barData = {
+  const barData = budgetData ? {
+    labels: budgetData.labels,
+    datasets: [
+      { label: 'Estimated', data: budgetData.estimated, backgroundColor: C.primary, borderRadius: 6, barPercentage: 0.45 },
+      { label: 'Actual', data: budgetData.actual, backgroundColor: C.light, borderRadius: 6, barPercentage: 0.45 },
+    ],
+  } : {
     labels: ['Downtown', 'Harbor', 'Riverside', 'Tech'],
     datasets: [
-      { label: 'Estimated', data: [12, 28, 8, 45], backgroundColor: C.primary, borderRadius: 6, barPercentage: 0.45 },
-      { label: 'Actual', data: [7, 17, 4, 33], backgroundColor: C.light, borderRadius: 6, barPercentage: 0.45 },
+      { label: 'Estimated', data: [1200000, 2800000, 800000, 4500000], backgroundColor: C.primary, borderRadius: 6, barPercentage: 0.45 },
+      { label: 'Actual', data: [700000, 1700000, 400000, 3300000], backgroundColor: C.light, borderRadius: 6, barPercentage: 0.45 },
     ],
   };
 
@@ -122,25 +242,38 @@ const AnalyticsTab = () => {
     <div className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div style={card}>
-          <p style={{ fontWeight: 700, fontSize: 14, color: C.dark }}>Project status</p>
-          <p style={{ fontSize: 12, color: C.mid, marginBottom: 16 }}>Distribution by status</p>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
-            <div style={{ width: 130, height: 130, flexShrink: 0 }}>
-              <Doughnut data={donutData} options={{
-                plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed}` } } },
-                cutout: '68%', maintainAspectRatio: true,
-              }} />
+          <p style={{ fontWeight: 700, fontSize: 14, color: C.dark }}>Statut des tâches</p>
+          <p style={{ fontSize: 12, color: C.mid, marginBottom: 16 }}>Répartition réelle de ce projet</p>
+
+          {statusLoading ? (
+            <p style={{ color: C.mid, fontSize: 13, padding: '24px 0', textAlign: 'center' }}>Chargement…</p>
+          ) : statusError ? (
+            <p style={{ color: '#b91c1c', fontSize: 13, padding: '24px 0', textAlign: 'center' }}>{statusError}</p>
+          ) : totalTasks === 0 ? (
+            <p style={{ color: C.mid, fontSize: 13, padding: '24px 0', textAlign: 'center' }}>Aucune tâche pour ce projet.</p>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
+              <div style={{ width: 130, height: 130, flexShrink: 0 }}>
+                <Doughnut data={donutData} options={{
+                  plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed}` } } },
+                  cutout: '68%', maintainAspectRatio: true,
+                }} />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {[
+                  [C.lighter, 'Non commencées', taskStatus.not_started],
+                  [C.mid, 'En cours', taskStatus.in_progress],
+                  [C.primary, 'Terminées', taskStatus.done],
+                ].map(([color, label, count]) => (
+                  <span key={label} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: C.medium }}>
+                    <span style={{ width: 10, height: 10, borderRadius: 2, background: color, flexShrink: 0, display: 'inline-block' }} />
+                    {label}
+                    <strong style={{ marginLeft: 'auto', paddingLeft: 12, color: C.dark }}>{count}</strong>
+                  </span>
+                ))}
+              </div>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {[[C.primary, 'On Track', '2'], [C.mid, 'At Risk', '1'], [C.light, 'Delayed', '1'], [C.lighter, 'Completed', '1']].map(([color, label, count]) => (
-                <span key={label} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: C.medium }}>
-                  <span style={{ width: 10, height: 10, borderRadius: 2, background: color, flexShrink: 0, display: 'inline-block' }} />
-                  {label}
-                  <strong style={{ marginLeft: 'auto', paddingLeft: 12, color: C.dark }}>{count}</strong>
-                </span>
-              ))}
-            </div>
-          </div>
+          )}
         </div>
 
         <div style={card}>
@@ -166,9 +299,12 @@ const AnalyticsTab = () => {
         <div style={{ height: 220 }}>
           <Bar data={barData} options={{
             responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
+            plugins: {
+              legend: { display: false },
+              tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${formatDA(ctx.parsed.y)}` } },
+            },
             scales: {
-              y: { ...axis, ticks: { ...axis.ticks, callback: v => '$' + v + 'M' } },
+              y: { ...axis, ticks: { ...axis.ticks, callback: v => formatDA(v) } },
               x: { ...axis, grid: { display: false } },
             },
           }} />
@@ -177,9 +313,24 @@ const AnalyticsTab = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <StatCard icon={Target} label="On-time rate" value="87%" desc="Projects meeting deadlines" />
-        <StatCard icon={TrendingDown} label="Budget variance" value="-12%" desc="Average under budget" />
-        <StatCard icon={CalendarDays} label="Reports generated" value="342" desc="This quarter" />
+        <StatCard
+          icon={Target}
+          label="On-time rate"
+          value={summary?.onTimeRate != null ? `${summary.onTimeRate}%` : '—'}
+          desc="Tasks meeting deadlines"
+        />
+        <StatCard
+          icon={TrendingDown}
+          label="Budget variance"
+          value={budgetVariance != null ? `${budgetVariance > 0 ? '+' : ''}${budgetVariance.toFixed(1)}%` : '—'}
+          desc={budgetVariance != null ? (budgetVariance <= 0 ? 'Under budget' : 'Over budget') : 'No budget data'}
+        />
+        <StatCard
+          icon={CalendarDays}
+          label="Reports generated"
+          value={summary?.reportsCount ?? '—'}
+          desc="This quarter"
+        />
       </div>
     </div>
   );
@@ -218,7 +369,7 @@ const BudgetPlaceholder = ({ project }) => {
   );
 };
 
-// ── DOCUMENTS TAB ──────────────────────────────────────────
+// ── DOCUMENTS TAB (unchanged, works with new backend) ──────────────────────────
 const DOC_CATEGORIES = ['All', 'Contract', 'Blueprint', 'Permit', 'Report', 'Other'];
 
 const categoryStyle = (type) => {
@@ -445,6 +596,83 @@ const DocumentsTab = ({ projectId }) => {
   );
 };
 
+// ── REPORT DETAIL MODAL ─────────────────────────────────────
+// Affiche le contenu complet d'un rapport journalier (content + tasks),
+// chargé via GET /api/reports/:id au clic sur une carte dans l'onglet
+// "Daily reports". Lecture seule.
+function ReportDetailModal({ report, loading, error, onClose }) {
+  const tasks = Array.isArray(report?.tasks) ? report.tasks : [];
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(4,44,83,0.35)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: '#fff', borderRadius: 24, padding: 28,
+          width: '90%', maxWidth: 560, maxHeight: '80vh', overflowY: 'auto',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+          <div>
+            <h3 style={{ fontWeight: 700, fontSize: 18, color: '#111827' }}>
+              {report?.report_date ? `Rapport du ${new Date(report.report_date).toLocaleDateString()}` : 'Rapport'}
+            </h3>
+            {report?.author_name && (
+              <p style={{ fontSize: 13, color: '#9ca3af', marginTop: 2 }}>Rédigé par {report.author_name}</p>
+            )}
+          </div>
+          <button
+            onClick={onClose}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 20, lineHeight: 1 }}
+          >
+            ×
+          </button>
+        </div>
+
+        {loading ? (
+          <p style={{ color: C.mid, textAlign: 'center', padding: 24 }}>Chargement du rapport…</p>
+        ) : error ? (
+          <p style={{ color: '#b91c1c', textAlign: 'center', padding: 24 }}>{error}</p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+            <div>
+              <p style={{ fontSize: 11, fontWeight: 700, color: C.medium, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+                Contenu
+              </p>
+              <p style={{ fontSize: 14, color: '#374151', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
+                {report?.content?.trim()
+                  ? report.content
+                  : <span style={{ color: '#9ca3af', fontStyle: 'italic' }}>Aucun contenu.</span>}
+              </p>
+            </div>
+
+            {tasks.length > 0 && (
+              <div>
+                <p style={{ fontSize: 11, fontWeight: 700, color: C.medium, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+                  Tâches concernées ({tasks.length})
+                </p>
+                <ul style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 18, margin: 0 }}>
+                  {tasks.map((t, i) => (
+                    <li key={i} style={{ fontSize: 13, color: '#374151' }}>
+                      {typeof t === 'object' ? (t.name || t.title || JSON.stringify(t)) : String(t)}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── MAIN ───────────────────────────────────────────────────
 export default function ProjectDetails({ projectId, onBack }) {
   const [activeTab, setActiveTab] = useState('analytics');
@@ -456,7 +684,18 @@ export default function ProjectDetails({ projectId, onBack }) {
   const [ganttError, setGanttError] = useState(null);
   const [taskModal, setTaskModal] = useState({ open: false, mode: 'add', task: null });
 
+  const [alerts, setAlerts] = useState([]);
+  const [alertsLoading, setAlertsLoading] = useState(false);
+  const [alertsError, setAlertsError] = useState(null);
+
+  // Rapport ouvert dans la modal de détail (onglet "Daily reports")
+  const [selectedReport, setSelectedReport] = useState(null);
+  const [reportDetailLoading, setReportDetailLoading] = useState(false);
+  const [reportDetailError, setReportDetailError] = useState(null);
+
   const authToken = localStorage.getItem('token');
+
+  const navigate = useNavigate();
 
   useEffect(() => {
     const load = async () => {
@@ -478,13 +717,56 @@ export default function ProjectDetails({ projectId, onBack }) {
 
   useEffect(() => {
     if (activeTab === 'daily-reports' && projectId) {
-      fetch(`http://localhost:5000/api/reports/project/${projectId}`)
+      fetch(`http://localhost:5000/api/reports/project/${projectId}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      })
         .then(r => r.json()).then(setReports).catch(console.error);
     }
-  }, [activeTab, projectId]);
+  }, [activeTab, projectId, authToken]);
 
-  // Charge les tâches du projet pour alimenter le Gantt (endpoint task_routes.js,
-  // qui renvoie is_delayed/dependencies — exactement ce que GanttChart attend).
+  // Charge le contenu complet d'un rapport (content + tasks) au clic sur
+  // une carte de l'onglet "Daily reports".
+  const handleOpenReport = async (reportId) => {
+    setSelectedReport({ loading: true }); // ouvre la modal tout de suite, en état "chargement"
+    setReportDetailLoading(true);
+    setReportDetailError(null);
+    try {
+      const res = await fetch(`http://localhost:5000/api/reports/${reportId}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (!res.ok) throw new Error(`Erreur ${res.status}`);
+      const data = await res.json();
+      setSelectedReport(data);
+    } catch (e) {
+      console.error(e);
+      setReportDetailError("Impossible de charger le contenu du rapport.");
+    } finally {
+      setReportDetailLoading(false);
+    }
+  };
+
+  //alerts
+
+  useEffect(() => {
+    if (activeTab === 'alerts' && projectId) {
+      setAlertsLoading(true);
+      setAlertsError(null);
+      fetch(`http://localhost:5000/api/projects/${projectId}/alerts`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      })
+        .then(r => {
+          if (!r.ok) throw new Error(`Erreur ${r.status}`);
+          return r.json();
+        })
+        .then(setAlerts)
+        .catch(e => {
+          console.error(e);
+          setAlertsError("Impossible de charger les alertes.");
+        })
+        .finally(() => setAlertsLoading(false));
+    }
+  }, [activeTab, projectId, authToken]);
+  // UPDATED: Use the enhanced tasks endpoint that returns dependencies and is_delayed
   const loadGanttTasks = useCallback(async () => {
     if (!projectId) return;
     setGanttLoading(true);
@@ -539,7 +821,12 @@ export default function ProjectDetails({ projectId, onBack }) {
     </div>
   );
 
-  const budgetPercent = (project.budget_spent / project.budget_total) * 100;
+  // Number(...) évite les NaN si l'API renvoie une string pg numeric, et
+  // le garde-fou sur budget_total = 0 évite un "NaN%" affiché si le budget
+  // n'a pas encore été renseigné pour ce projet.
+  const budgetPercent = Number(project.budget_total) > 0
+    ? (Number(project.budget_spent) / Number(project.budget_total)) * 100
+    : 0;
 
   const tabs = [
     { id: 'analytics', label: 'Analytics', icon: BarChart2 },
@@ -616,9 +903,9 @@ export default function ProjectDetails({ projectId, onBack }) {
             </div>
             <div style={{ flex: 1 }}>
               <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 2 }}>Progress</p>
-              <p style={{ fontSize: 15, fontWeight: 700, color: '#111827' }}>{project.progress}% complete</p>
+              <p style={{ fontSize: 15, fontWeight: 700, color: '#111827' }}>{Number(project.progress) || 0}% complete</p>
               <div style={{ height: 4, background: C.lighter, borderRadius: 4, overflow: 'hidden', marginTop: 6 }}>
-                <div style={{ width: `${project.progress}%`, height: '100%', background: C.primary, borderRadius: 4 }} />
+                <div style={{ width: `${Math.min(Number(project.progress) || 0, 100)}%`, height: '100%', background: C.primary, borderRadius: 4 }} />
               </div>
             </div>
           </div>
@@ -635,9 +922,9 @@ export default function ProjectDetails({ projectId, onBack }) {
               />
             </div>
             <p style={{ fontSize: 20, fontWeight: 700, color: C.dark }}>
-              {(project.budget_spent / 1000).toFixed(0)}k DA
+              {formatDA(project.budget_spent)}
               <span style={{ fontSize: 13, color: C.light, fontWeight: 400, marginLeft: 6 }}>
-                / {(project.budget_total / 1000).toFixed(0)}k
+                / {formatDA(project.budget_total)}
               </span>
             </p>
           </div>
@@ -675,7 +962,7 @@ export default function ProjectDetails({ projectId, onBack }) {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.22 }}
         >
-          {activeTab === 'analytics' && <AnalyticsTab />}
+          {activeTab === 'analytics' && <AnalyticsTab projectId={projectId} authToken={authToken} project={project} />}
           {activeTab === 'budget' && (
             <div className="space-y-6">
               <BudgetPlaceholder project={project} />
@@ -722,12 +1009,14 @@ export default function ProjectDetails({ projectId, onBack }) {
             <div className="space-y-4">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                 <h3 style={{ fontWeight: 700, fontSize: 16, color: '#111827' }}>Rapports de chantier</h3>
-                <button style={{
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  background: C.primary, color: '#fff',
-                  padding: '10px 18px', borderRadius: 12,
-                  fontSize: 13, fontWeight: 700, border: 'none', cursor: 'pointer',
-                }}>
+                <button
+                  onClick={() => navigate('/reports')}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    background: C.primary, color: '#fff',
+                    padding: '10px 18px', borderRadius: 12,
+                    fontSize: 13, fontWeight: 700, border: 'none', cursor: 'pointer',
+                  }}>
                   <Plus size={15} /> New report
                 </button>
               </div>
@@ -737,6 +1026,7 @@ export default function ProjectDetails({ projectId, onBack }) {
                   {reports.map(r => (
                     <div
                       key={r.id}
+                      onClick={() => handleOpenReport(r.id)}
                       style={{
                         background: '#fff', padding: 20, borderRadius: 20,
                         border: `1px solid ${C.lighter}`,
@@ -768,19 +1058,48 @@ export default function ProjectDetails({ projectId, onBack }) {
             </div>
           )}
 
+
           {activeTab === 'alerts' && (
-            <div style={{
-              background: '#fff1f0', border: '1px solid #fca5a5',
-              padding: 24, borderRadius: 20,
-              display: 'flex', alignItems: 'flex-start', gap: 16, color: '#b91c1c',
-            }}>
-              <AlertTriangle size={22} style={{ flexShrink: 0, marginTop: 2 }} />
-              <div>
-                <h4 style={{ fontWeight: 700, marginBottom: 4 }}>AI detection: delay risk</h4>
-                <p style={{ fontSize: 13, opacity: 0.8 }}>
-                  Supply chain logistics for this project are 4 days behind schedule based on recent reports.
-                </p>
-              </div>
+            <div className="space-y-4">
+              {alertsLoading ? (
+                <p style={{ color: C.mid, textAlign: 'center', padding: 24 }}>Chargement des alertes…</p>
+              ) : alertsError ? (
+                <p style={{ color: '#b91c1c', textAlign: 'center', padding: 24 }}>{alertsError}</p>
+              ) : alerts.length === 0 ? (
+                <div style={{ padding: 56, background: '#fff', borderRadius: 24, border: `1px solid ${C.lighter}`, textAlign: 'center' }}>
+                  <AlertTriangle size={44} color={C.lighter} style={{ margin: '0 auto 14px' }} />
+                  <p style={{ color: '#9ca3af', fontStyle: 'italic', fontSize: 14 }}>Aucune alerte active pour ce projet.</p>
+                </div>
+              ) : (
+                alerts.map(a => {
+                  const isCritical = a.severity === 'critical';
+                  return (
+                    <div
+                      key={a.id}
+                      style={{
+                        background: isCritical ? '#fff1f0' : '#fffbeb',
+                        border: `1px solid ${isCritical ? '#fca5a5' : '#fcd34d'}`,
+                        padding: 24, borderRadius: 20,
+                        display: 'flex', alignItems: 'flex-start', gap: 16,
+                        color: isCritical ? '#b91c1c' : '#92400e',
+                      }}
+                    >
+                      <AlertTriangle size={22} style={{ flexShrink: 0, marginTop: 2 }} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 4 }}>
+                          <h4 style={{ fontWeight: 700 }}>
+                            {a.indicator === 'IPC' ? 'Dépassement de coûts (IPC)' : 'Retard de planning (IPD)'}
+                          </h4>
+                          <span style={{ fontSize: 11, opacity: 0.7, whiteSpace: 'nowrap' }}>
+                            {new Date(a.created_at).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <p style={{ fontSize: 13, opacity: 0.85 }}>{a.message}</p>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
           )}
 
@@ -795,6 +1114,15 @@ export default function ProjectDetails({ projectId, onBack }) {
           onClose={() => setTaskModal({ open: false, mode: 'add', task: null })}
           onSaved={loadGanttTasks}
         />
+
+        {selectedReport && (
+          <ReportDetailModal
+            report={selectedReport}
+            loading={reportDetailLoading}
+            error={reportDetailError}
+            onClose={() => setSelectedReport(null)}
+          />
+        )}
       </div>
     </div>
   );

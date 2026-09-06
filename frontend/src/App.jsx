@@ -24,6 +24,8 @@ export default function App() {
 
         <Route path="/dashboard" element={<PrivateRoute><DashboardPage /></PrivateRoute>} />
         <Route path="/projecrnews" element={<PrivateRoute><ProjectNews /></PrivateRoute>} />
+
+        
         <Route path="/projects" element={<PrivateRoute><Project /></PrivateRoute>} />
         <Route path="/usermanagement" element={<PrivateRoute><UserManagement /></PrivateRoute>} />
         <Route path="/settings" element={<PrivateRoute><Settings /></PrivateRoute>} />

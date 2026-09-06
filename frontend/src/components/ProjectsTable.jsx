@@ -1,4 +1,4 @@
-// frontend/src/components/ProjectsTable.jsx
+ frontend/src/components/ProjectsTable.jsx
 import React, { useState } from 'react';
 
 const STATUS_CONFIG = {

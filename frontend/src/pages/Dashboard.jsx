@@ -107,10 +107,10 @@ const Dashboard = () => {
       } else if (budgetRes.status === 'rejected') {
         newErrors.budgetHistory = budgetRes.reason?.message || 'Erreur budget history';
         // Fallback: use budgetHistory embedded in /stats if available
-        if (statsRes.status === 'fulfilled' && statsRes.value?.budgetHistory) {
-          setBudgetHistory(statsRes.value.budgetHistory);
-          delete newErrors.budgetHistory;
-        }
+        //if (statsRes.status === 'fulfilled' && statsRes.value?.budgetHistory) {
+          //setBudgetHistory(statsRes.value.budgetHistory);
+         // delete newErrors.budgetHistory;
+        //}
       }
 
       if (projectsRes.status === 'fulfilled' && projectsRes.value) {
@@ -119,10 +119,10 @@ const Dashboard = () => {
       } else if (projectsRes.status === 'rejected') {
         newErrors.projects = projectsRes.reason?.message || 'Erreur projets';
         // Fallback: use recentProjects embedded in /stats if available
-        if (statsRes.status === 'fulfilled' && statsRes.value?.recentProjects) {
+        /*if (statsRes.status === 'fulfilled' && statsRes.value?.recentProjects) {
           setProjects(statsRes.value.recentProjects);
           delete newErrors.projects;
-        }
+        }*/
       }
 
       if (alertsRes.status === 'fulfilled' && alertsRes.value) {
@@ -183,16 +183,18 @@ const Dashboard = () => {
   // Marque une alerte comme lue côté backend (persistant), puis met à jour
   // l'état local pour la faire disparaître immédiatement de la liste.
   const handleAlertRead = async (alertId) => {
-    const token = localStorage.getItem('token');
-    try {
-      await apiFetch(`/alerts/${alertId}/read`, token, navigate, { method: 'PATCH' });
-      setAlerts((prev) => prev.filter((a) => a.id !== alertId));
-    } catch (err) {
-      console.error("Erreur lors du marquage de l'alerte comme lue:", err);
-      // On ne retire pas l'alerte localement si la persistance a échoué,
-      // pour éviter une désynchronisation avec la base.
-    }
-  };
+  const token = localStorage.getItem('token');
+  try {
+    await apiFetch(`/alerts/${alertId}/read`, token, navigate, { method: 'PATCH' });
+    setAlerts((prev) => prev.filter((a) => a.id !== alertId));
+    setStats((prev) => prev && {
+      ...prev,
+      metrics: { ...prev.metrics, alerts: Math.max(0, (prev.metrics.alerts || 0) - 1) }
+    });
+  } catch (err) {
+    console.error("Erreur lors du marquage de l'alerte comme lue:", err);
+  }
+};
 
   if (selectedProjectId) {
     return <ProjectDetails projectId={selectedProjectId} onBack={() => setSelectedProjectId(null)} />;
@@ -246,9 +248,8 @@ const Dashboard = () => {
               <div>
                 <p className="text-sm text-gray-500 font-medium">Projets Actifs</p>
                 <p className="text-2xl font-bold text-gray-900">{metrics.active_projects ?? '—'}</p>
-                {/* Total from full /projects list */}
-                {projects.length > 0 && (
-                  <p className="text-xs text-gray-400 mt-0.5">{projects.length} au total</p>
+                {metrics.total_projects > 0 && (
+                  <p className="text-xs text-gray-400 mt-0.5">{metrics.total_projects} au total</p>
                 )}
               </div>
             </div>
@@ -404,11 +405,11 @@ const Dashboard = () => {
             <div className="p-6 border-b border-gray-100 flex items-center justify-between">
               <div>
                 <h3 className="font-semibold text-gray-800">Projets Récents</h3>
-                <p className="text-sm text-gray-400 mt-0.5">
-                  {projects.length > 4
-                    ? `Affichage de 4 sur ${projects.length} projets`
-                    : 'Aperçu rapide des derniers chantiers'}
-                </p>
+                  <p className="text-sm text-gray-400 mt-0.5">
+                    {metrics.total_projects > 4
+                      ? `Affichage de 4 sur ${metrics.total_projects} projets`
+                      : 'Aperçu rapide des derniers chantiers'}
+                  </p>
               </div>
               <Link to="/projects">
                 <button className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 font-medium transition">

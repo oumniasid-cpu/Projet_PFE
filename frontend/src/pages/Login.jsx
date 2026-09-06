@@ -33,7 +33,7 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-[#0B1120] p-4 sm:p-8">
+    <div className="min-h-screen w-full flex items-center justify-center bg-[#0B1120] p-4 sm:p-8 " >
       <div className="flex flex-col md:flex-row w-full max-w-5xl bg-[#111827] rounded-3xl overflow-hidden shadow-2xl border border-white/5">
         
         {/* Left Side: Illustration */}

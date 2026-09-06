@@ -24,6 +24,7 @@ const normalizeRole = (role) =>
 // Maître d'ouvrage.
 const MANAGE_TASK_ROLES = new Set([
   'admin',
+  'user',
   "maitre d'ouvrage",
   'maitre ouvrage',
   'entrepreneur',
@@ -61,20 +62,32 @@ const roleGuard = (allowedRoles) => async (req, res, next) => {
 const canManageTasks = roleGuard(MANAGE_TASK_ROLES);
 const canDeleteTasks = roleGuard(DELETE_TASK_ROLES);
 
-const taskSelect = `
-  SELECT
+// tasks.status accepte 2 conventions en parallèle côté base (contrainte CHECK) :
+// todo/in-progress/completed (ancien import) ET not_started/in_progress/done/delayed.
+// is_delayed et tasks_done doivent traiter 'completed' comme équivalent à 'done',
+// sinon une tâche importée avec l'ancien format serait classée "en retard" à tort
+// même si elle est en réalité terminée.
+const DONE_STATUSES = "('done', 'completed')";
+
+// Liste de colonnes réutilisable pour les requêtes sur "tasks" (SANS FROM).
+// NOTE: t.dependencies (colonne brute) n'est PAS incluse ici — la route
+// GET /projects/:project_id/tasks recalcule "dependencies" via json_agg,
+// donc l'inclure ici créerait une colonne dupliquée dans le résultat.
+const taskSelectColumns = `
     t.id, t.project_id, t.parent_task_id, t.wbs_code, COALESCE(t.name, t.title) AS name,
     t.planned_start, t.planned_end, t.actual_start, t.actual_end,
     t.duration_days, t.progress_percent, t.planned_cost, t.actual_cost,
     t.responsible_user_id, u.name AS responsible_name, t.status, t.notes,
-    t.dependencies, t.color,
+    t.color,
     (
       (t.actual_end IS NOT NULL AND t.planned_end IS NOT NULL AND t.actual_end > t.planned_end)
-      OR (t.status <> 'done' AND t.planned_end IS NOT NULL AND t.planned_end < CURRENT_DATE)
+      OR (t.status NOT IN ${DONE_STATUSES} AND t.planned_end IS NOT NULL AND t.planned_end < CURRENT_DATE)
     ) AS is_delayed
-  FROM tasks t
-  LEFT JOIN users u ON u.id = t.responsible_user_id
 `;
+
+// Version complète (colonnes + FROM) pour les usages qui n'ont pas besoin
+// de rajouter d'autres colonnes après.
+const taskSelect = `SELECT ${taskSelectColumns} FROM tasks t LEFT JOIN users u ON u.id = t.responsible_user_id`;
 
 const ALLOWED_STATUSES = ['not_started', 'in_progress', 'done'];
 
@@ -104,10 +117,19 @@ const updateProjectActualCost = async (client, projectId) => {
   );
 };
 
+// ─── GET tasks for a project (with dependencies) ──────────
 router.get('/projects/:project_id/tasks', authenticateToken, async (req, res, next) => {
   try {
     const { rows } = await pool.query(
-      `${taskSelect}
+      `SELECT ${taskSelectColumns},
+       COALESCE(
+         (SELECT json_agg(d.depends_on_task_id)
+          FROM task_dependencies d
+          WHERE d.task_id = t.id),
+         '[]'::json
+       ) AS dependencies
+       FROM tasks t
+       LEFT JOIN users u ON u.id = t.responsible_user_id
        WHERE t.project_id = $1
        ORDER BY COALESCE(t.wbs_code, t.id::text) ASC, t.planned_start ASC NULLS LAST`,
       [req.params.project_id]
@@ -118,6 +140,7 @@ router.get('/projects/:project_id/tasks', authenticateToken, async (req, res, ne
   }
 });
 
+// ─── GET project summary (EVM, progress, etc.) ──────────
 router.get('/projects/:project_id/summary', authenticateToken, async (req, res, next) => {
   try {
     const project = await pool.query('SELECT * FROM projects WHERE id = $1', [req.params.project_id]);
@@ -128,7 +151,7 @@ router.get('/projects/:project_id/summary', authenticateToken, async (req, res, 
         SELECT *,
           (
             (actual_end IS NOT NULL AND planned_end IS NOT NULL AND actual_end > planned_end)
-            OR (status <> 'done' AND planned_end IS NOT NULL AND planned_end < CURRENT_DATE)
+            OR (status NOT IN ${DONE_STATUSES} AND planned_end IS NOT NULL AND planned_end < CURRENT_DATE)
           ) AS is_delayed
         FROM tasks
         WHERE project_id = $1
@@ -143,9 +166,9 @@ router.get('/projects/:project_id/summary', authenticateToken, async (req, res, 
         COALESCE(SUM(actual_cost), 0) AS total_actual_cost,
         COALESCE(SUM(planned_cost) FILTER (WHERE status = 'done'), 0) AS cost_of_done_tasks,
         COUNT(*)::int AS tasks_total,
-        COUNT(*) FILTER (WHERE status = 'done')::int AS tasks_done,
+        COUNT(*) FILTER (WHERE status IN ${DONE_STATUSES})::int AS tasks_done,
         COUNT(*) FILTER (WHERE is_delayed)::int AS tasks_delayed,
-        COUNT(*) FILTER (WHERE status = 'in_progress')::int AS tasks_in_progress
+        COUNT(*) FILTER (WHERE status IN ('in_progress', 'in-progress'))::int AS tasks_in_progress
       FROM task_data`,
       [req.params.project_id]
     );
@@ -184,6 +207,7 @@ router.get('/projects/:project_id/summary', authenticateToken, async (req, res, 
   }
 });
 
+// ─── CREATE task ──────────────────────────────────────────
 router.post('/projects/:project_id/tasks', authenticateToken, canManageTasks, async (req, res, next) => {
   try {
     const task = req.body;
@@ -220,6 +244,7 @@ router.post('/projects/:project_id/tasks', authenticateToken, canManageTasks, as
   }
 });
 
+// ─── UPDATE task ──────────────────────────────────────────
 router.patch('/tasks/:task_id', authenticateToken, canManageTasks, async (req, res, next) => {
   const allowed = [
     'progress_percent', 'actual_cost', 'actual_start', 'actual_end', 'status', 'notes',
@@ -292,6 +317,7 @@ router.patch('/tasks/:task_id', authenticateToken, canManageTasks, async (req, r
   }
 });
 
+// ─── DELETE task (cascade children) ──────────────────────
 router.delete('/tasks/:task_id', authenticateToken, canDeleteTasks, async (req, res, next) => {
   const client = await pool.connect();
   try {

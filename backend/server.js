@@ -9,7 +9,12 @@ const projectRoutes = require("./routes/projects");
 const dashboardRoutes = require("./routes/dashboard");
 const importRoutes = require("./routes/import_routes");
 const taskRoutes = require("./routes/task_routes");
-
+const documentsRoutes = require('./routes/documents');
+const reportsRoutes = require('./routes/reports'); // ⚠️ manquait — jamais monté avant
+// analyticsRoutes retiré : dupliquait /api/projects/:id/analytics/task-status
+// déjà géré (et mieux géré, avec contrôle de visibilité + normalisation des
+// statuts) dans projectController.js via routes/projects.js. Le double montage
+// sur '/api/projects' causait une collision de route silencieuse.
 const app = express();
 
 
@@ -39,10 +44,12 @@ app.get("/", (req, res) => {
 // API ROUTES
 // ======================
 
+app.use('/api/documents', documentsRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/import", importRoutes);
+app.use("/api/reports", reportsRoutes);
 app.use("/api", taskRoutes);
 app.use('/api/evm', require('./routes/evm'));
 

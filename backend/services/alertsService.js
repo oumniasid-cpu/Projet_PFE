@@ -117,7 +117,8 @@ async function listAlerts(pool, projectId, { unreadOnly = false } = {}) {
 /** Marque une alerte comme lue. */
 async function markAlertRead(pool, alertId) {
   const { rows } = await pool.query(
-    `UPDATE alerts SET is_read = TRUE WHERE id = $1 RETURNING *`,
+    `UPDATE alerts SET is_read = TRUE, is_resolved = TRUE, resolved_at = CURRENT_TIMESTAMP
+     WHERE id = $1 RETURNING *`,
     [alertId]
   );
   return rows[0] || null;
