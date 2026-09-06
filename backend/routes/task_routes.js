@@ -85,15 +85,19 @@ const computeDuration = (start, end, duration) => {
   return Number.isFinite(diff) ? Math.max(diff, 0) : 0;
 };
 
+// Recalcule le coût réel/dépensé du projet à partir des tâches marquées
+// "done" : on somme leur planned_cost (le budget "gagné"/dépensé par les
+// tâches terminées), pas actual_cost (champ non renseigné dans le workflow
+// actuel de checkbox).
 const updateProjectActualCost = async (client, projectId) => {
   await client.query(
     `UPDATE projects
      SET actual_cost = COALESCE(costs.total, 0),
          budget_spent = COALESCE(costs.total, 0)
      FROM (
-       SELECT COALESCE(SUM(actual_cost), 0) AS total
+       SELECT COALESCE(SUM(planned_cost), 0) AS total
        FROM tasks
-       WHERE project_id = $1
+       WHERE project_id = $1 AND status = 'done'
      ) costs
      WHERE projects.id = $1`,
     [projectId]
@@ -137,6 +141,7 @@ router.get('/projects/:project_id/summary', authenticateToken, async (req, res, 
         ) AS overall_progress,
         COALESCE(SUM(planned_cost), 0) AS total_planned_cost,
         COALESCE(SUM(actual_cost), 0) AS total_actual_cost,
+        COALESCE(SUM(planned_cost) FILTER (WHERE status = 'done'), 0) AS cost_of_done_tasks,
         COUNT(*)::int AS tasks_total,
         COUNT(*) FILTER (WHERE status = 'done')::int AS tasks_done,
         COUNT(*) FILTER (WHERE is_delayed)::int AS tasks_delayed,
@@ -157,10 +162,13 @@ router.get('/projects/:project_id/summary', authenticateToken, async (req, res, 
     const plannedProgressToday = (elapsed / totalTimeline) * 100 || 1;
     const overallProgress = Number(summary.overall_progress || 0);
     const totalPlannedCost = Number(summary.total_planned_cost || 0);
+    const costOfDoneTasks = Number(summary.cost_of_done_tasks || 0);
 
     res.json({
       overall_progress: overallProgress,
       budget_used_pct: plannedBudget > 0 ? (actualCost / plannedBudget) * 100 : 0,
+      cost_progress_pct: plannedBudget > 0 ? (costOfDoneTasks / plannedBudget) * 100 : 0,
+      cost_of_done_tasks: costOfDoneTasks,
       total_planned_cost: totalPlannedCost,
       total_actual_cost: actualCost,
       tasks_total: summary.tasks_total,
@@ -223,6 +231,23 @@ router.patch('/tasks/:task_id', authenticateToken, canManageTasks, async (req, r
 
   if (req.body.status !== undefined && !ALLOWED_STATUSES.includes(req.body.status)) {
     return res.status(400).json({ success: false, error: 'Statut invalide.' });
+  }
+
+  // Garde le progress_percent synchronisé avec le statut : une tâche
+  // "done" doit valoir 100% (sinon elle ne compte pour rien dans
+  // l'avancement global calculé par duration_days), et une tâche qui
+  // repasse à "not_started"/"in_progress" sans progress_percent fourni
+  // explicitement retombe à 0%.
+  if (req.body.status === 'done' && req.body.progress_percent === undefined) {
+    req.body.progress_percent = 100;
+    entries.push(['progress_percent', 100]);
+  } else if (
+    req.body.status !== undefined &&
+    req.body.status !== 'done' &&
+    req.body.progress_percent === undefined
+  ) {
+    req.body.progress_percent = 0;
+    entries.push(['progress_percent', 0]);
   }
 
   if (

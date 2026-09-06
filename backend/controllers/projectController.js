@@ -55,7 +55,8 @@ exports.getProjectById = async (req, res) => {
       COALESCE(progress_calc.overall_progress, p.progress, 0) as overall_progress,
       COALESCE(progress_calc.overall_progress, p.progress, 0) as progress,
       COALESCE(p.planned_budget, p.budget_total, 0) as budget_total,
-      COALESCE(p.actual_cost, p.budget_spent, 0) as budget_spent
+      COALESCE(p.actual_cost, p.budget_spent, 0) as budget_spent,
+      COALESCE(cost_calc.cost_progress_pct, 0) as cost_progress_pct
       FROM projects p
       LEFT JOIN users u ON p.owner_id = u.id
       LEFT JOIN LATERAL (
@@ -66,6 +67,14 @@ exports.getProjectById = async (req, res) => {
         FROM tasks t
         WHERE t.project_id = p.id
       ) progress_calc ON true
+      LEFT JOIN LATERAL (
+        SELECT ROUND(
+          COALESCE(SUM(t.planned_cost) FILTER (WHERE t.status = 'done'), 0)
+          / NULLIF(COALESCE(p.planned_budget, p.budget_total, 0), 0) * 100
+        )::int as cost_progress_pct
+        FROM tasks t
+        WHERE t.project_id = p.id
+      ) cost_calc ON true
       WHERE p.id = $1 AND ${projectVisibilityClause(2, 3)}
     `;
     const result = await pool.query(query, [id, seesAll, userId]);
@@ -125,10 +134,10 @@ exports.importMPP = (req, res) => {
         `;
         // Mapping exact avec les clés JSON de mpp_parser.py
         const values = [
-          task.name, 
-          task.start_date, 
-          task.end_date, 
-          task.progress, 
+          task.name,
+          task.start_date,
+          task.end_date,
+          task.progress,
           task.cost
         ];
         return pool.query(query, values);
