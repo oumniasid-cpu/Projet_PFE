@@ -56,6 +56,33 @@ const formatDA = (v) => {
   if (Math.abs(n) >= 1_000) return (n / 1_000).toFixed(1).replace(/\.0$/, '') + 'K DA';
   return n.toLocaleString('fr-FR') + ' DA';
 };
+
+// ── ROLE HELPERS ───────────────────────────────────────────
+const normalizeRole = (r) =>
+  String(r || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+
+// Adapt this to wherever you store the role at login.
+const getUserRole = () => {
+  try {
+    const u = JSON.parse(localStorage.getItem('user'));
+    if (u?.role) return u.role;
+  } catch {}
+  const direct = localStorage.getItem('role');
+  if (direct) return direct;
+  try {
+    // Fallback: decode the JWT payload
+    const payload = JSON.parse(atob(localStorage.getItem('token').split('.')[1]));
+    return payload.role;
+  } catch {}
+  return '';
+};
+
+const isEngineerRole = (role) => {
+  const r = normalizeRole(role);
+  return r.includes('ingenieur') || r.includes('engineer');
+};
+
+
 const ChartLegend = ({ items }) => (
   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 12 }}>
     {items.map(({ color, label, dashed }) => (
@@ -86,7 +113,7 @@ const StatCard = ({ icon: Icon, label, value, desc }) => (
 );
 
 // ── ANALYTICS TAB ──────────────────────────────────────────
-const AnalyticsTab = ({ projectId, authToken, project }) => {
+const AnalyticsTab = ({ projectId, authToken, project ,hideBudget }) => {
   const [taskStatus, setTaskStatus] = useState(null);
   const [progressData, setProgressData] = useState(null);
   const [budgetData, setBudgetData] = useState(null);
@@ -127,14 +154,17 @@ const AnalyticsTab = ({ projectId, authToken, project }) => {
         }
 
         // 3. Budget breakdown (new endpoint)
-        const budgetRes = await fetch(
-          `http://localhost:5000/api/projects/${projectId}/analytics/budget-breakdown`,
-          { headers }
-        );
-        if (budgetRes.ok) {
-          const budget = await budgetRes.json();
-          if (!cancelled) setBudgetData(budget);
-        }
+       // 3. Budget breakdown
+        if (!hideBudget) {
+          const budgetRes = await fetch(
+            `http://localhost:5000/api/projects/${projectId}/analytics/budget-breakdown`,
+            { headers }
+          );
+          if (budgetRes.ok) {
+            const budget = await budgetRes.json();
+            if (!cancelled) setBudgetData(budget);
+          }
+}
 
         // 4. On-time rate + reports count (consolidated endpoint — the only
         // one that computes these two figures server-side)
@@ -156,7 +186,7 @@ const AnalyticsTab = ({ projectId, authToken, project }) => {
 
     load();
     return () => { cancelled = true; };
-  }, [projectId, authToken]);
+  }, [projectId, authToken,hideBudget]);
 
   // Variance budgétaire réelle du projet (pas seulement le top 6 tâches
   // utilisé pour le graphique Bar) : (dépensé - estimé) / estimé.
@@ -293,6 +323,7 @@ const AnalyticsTab = ({ projectId, authToken, project }) => {
         </div>
       </div>
 
+      {!hideBudget && (
       <div style={card}>
         <p style={{ fontWeight: 700, fontSize: 14, color: C.dark }}>Budget by project</p>
         <p style={{ fontSize: 12, color: C.mid, marginBottom: 16 }}>Estimated vs. actual spend comparison</p>
@@ -311,20 +342,26 @@ const AnalyticsTab = ({ projectId, authToken, project }) => {
         </div>
         <ChartLegend items={[{ color: C.primary, label: 'Estimated' }, { color: C.light, label: 'Actual' }]} />
       </div>
+      )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+      <div className={`grid grid-cols-1 gap-4 ${hideBudget ? 'md:grid-cols-2' : 'md:grid-cols-3'}`}>
         <StatCard
           icon={Target}
           label="On-time rate"
           value={summary?.onTimeRate != null ? `${summary.onTimeRate}%` : '—'}
           desc="Tasks meeting deadlines"
         />
+        {!hideBudget && (
+    
+ 
         <StatCard
           icon={TrendingDown}
           label="Budget variance"
           value={budgetVariance != null ? `${budgetVariance > 0 ? '+' : ''}${budgetVariance.toFixed(1)}%` : '—'}
           desc={budgetVariance != null ? (budgetVariance <= 0 ? 'Under budget' : 'Over budget') : 'No budget data'}
         />
+        )}
         <StatCard
           icon={CalendarDays}
           label="Reports generated"
@@ -694,7 +731,7 @@ export default function ProjectDetails({ projectId, onBack }) {
   const [reportDetailError, setReportDetailError] = useState(null);
 
   const authToken = localStorage.getItem('token');
-
+  const isEngineer = isEngineerRole(getUserRole());
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -828,15 +865,16 @@ export default function ProjectDetails({ projectId, onBack }) {
     ? (Number(project.budget_spent) / Number(project.budget_total)) * 100
     : 0;
 
-  const tabs = [
-    { id: 'analytics', label: 'Analytics', icon: BarChart2 },
-    { id: 'budget', label: 'Budget tracking', icon: Wallet },
-    { id: 'tasks', label: 'Tâches', icon: ListTodo },
-    { id: 'gantt', label: 'Gantt planning', icon: Layers },
-    { id: 'daily-reports', label: 'Daily reports', icon: FileText },
-    { id: 'alerts', label: 'AI alerts', icon: AlertTriangle },
-    { id: 'documents', label: 'Documents', icon: FileText },
-  ];
+ const allTabs = [
+  { id: 'analytics', label: 'Analytics', icon: BarChart2 },
+  { id: 'budget', label: 'Budget tracking', icon: Wallet, hiddenForEngineer: true },
+  { id: 'tasks', label: 'Tâches', icon: ListTodo },
+  { id: 'gantt', label: 'Gantt planning', icon: Layers },
+  { id: 'daily-reports', label: 'Daily reports', icon: FileText },
+  { id: 'alerts', label: 'AI alerts', icon: AlertTriangle },
+  { id: 'documents', label: 'Documents', icon: FileText },
+];
+const tabs = allTabs.filter(t => !(isEngineer && t.hiddenForEngineer));
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: '#f3f4f6' }}>
@@ -910,6 +948,8 @@ export default function ProjectDetails({ projectId, onBack }) {
             </div>
           </div>
 
+
+          {!isEngineer && (
           <div style={{ flex: 1, minWidth: 200, background: C.pale, borderRadius: 20, border: `1px solid ${C.lighter}`, padding: '18px 22px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: C.medium, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Budget used</span>
@@ -928,6 +968,7 @@ export default function ProjectDetails({ projectId, onBack }) {
               </span>
             </p>
           </div>
+          )}
         </div>
 
         {/* Tabs */}
@@ -962,8 +1003,8 @@ export default function ProjectDetails({ projectId, onBack }) {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.22 }}
         >
-          {activeTab === 'analytics' && <AnalyticsTab projectId={projectId} authToken={authToken} project={project} />}
-          {activeTab === 'budget' && (
+          {activeTab === 'analytics' && <AnalyticsTab projectId={projectId} authToken={authToken} project={project} hideBudget={isEngineer}/>}
+          {activeTab === 'budget' && !isEngineer && (
             <div className="space-y-6">
               <BudgetPlaceholder project={project} />
               <EVMCard projectId={projectId} />

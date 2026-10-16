@@ -9,7 +9,7 @@ import UserManagement from "./AdminPages/UserManagement";
 import Settings from "./pages/Settings";
 import DailyReports from "./components/DailyReports";
 import PrivateRoute from "./components/PrivateRoute";
-
+import NotificationsPage from "./pages/NotificationsPage";
 export default function App() {
   return (
     <Router>
@@ -30,6 +30,7 @@ export default function App() {
         <Route path="/usermanagement" element={<PrivateRoute><UserManagement /></PrivateRoute>} />
         <Route path="/settings" element={<PrivateRoute><Settings /></PrivateRoute>} />
         <Route path="/reports" element={<PrivateRoute><DailyReports /></PrivateRoute>} />
+        <Route path="/notifications" element={<NotificationsPage />} />
       </Routes>
     </Router>
   );

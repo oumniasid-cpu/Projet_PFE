@@ -117,6 +117,13 @@ export default function TaskTable({ tasks = [], onAdd, onEdit, onDelete }) {
                       backgroundImage: isDone ? "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='white' d='m13.2 3.6-6.5 6.5-3-3L2.3 8.5l4.4 4.4 7.9-7.9z'/%3E%3C/svg%3E\")" : 'none',
                     }}
                   />
+                  {(task.pictures || (task.picture ? [task.picture] : [])).length > 0 && (
+                    <div className="grid shrink-0 grid-cols-5 gap-1">
+                      {(task.pictures || [task.picture]).map((imageUrl) => (
+                        <img key={imageUrl} src={`http://localhost:5000${imageUrl}`} alt="" className="h-7 w-7 rounded-md border border-slate-200 object-cover" />
+                      ))}
+                    </div>
+                  )}
                   <span className="truncate text-sm font-medium text-slate-900">{task.name}</span>
                 </div>
 

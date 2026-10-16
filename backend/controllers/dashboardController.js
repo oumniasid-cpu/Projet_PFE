@@ -265,9 +265,9 @@ exports.markDashboardAlertRead = async (req, res) => {
     // l'utilisateur avant de la marquer comme lue (pas de fuite entre comptes).
     const owned = await pool.query(
       `SELECT a.id
-       FROM alerts a
-       JOIN projects p ON p.id = a.project_id
-       WHERE a.id = $1 AND ${scope}`,
+        FROM alerts a
+        JOIN projects p ON p.id = a.project_id
+        WHERE a.id = $1 AND ${scope}`,
       [alertId, seesAll, userId]
     );
 

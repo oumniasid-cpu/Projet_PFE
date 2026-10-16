@@ -29,10 +29,15 @@ export default function TaskModal({ open, mode = 'add', projectId, task, tasks =
   const [form, setForm] = useState(emptyTask);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [selectedPictures, setSelectedPictures] = useState([]);
+  const [removedPictureUrls, setRemovedPictureUrls] = useState([]);
 
   useEffect(() => {
     if (!open) return;
     setError('');
+    selectedPictures.forEach(({ preview }) => URL.revokeObjectURL(preview));
+    setSelectedPictures([]);
+    setRemovedPictureUrls([]);
     setForm(mode === 'edit' && task ? {
       ...emptyTask,
       ...task,
@@ -47,6 +52,9 @@ export default function TaskModal({ open, mode = 'add', projectId, task, tasks =
 
   if (!open) return null;
 
+  const existingPictures = task?.pictures?.length
+    ? task.pictures
+    : task?.picture ? [task.picture] : [];
   const setValue = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
 
   const handleSubmit = async (e) => {
@@ -68,14 +76,22 @@ export default function TaskModal({ open, mode = 'add', projectId, task, tasks =
         : `http://localhost:5000/api/projects/${projectId}/tasks`;
       const response = await fetch(url, {
         method: mode === 'edit' ? 'PATCH' : 'POST',
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
+        body: (() => {
+        const data = new FormData();
+        Object.entries(payload).forEach(([key, value]) => {
+          if (key === 'picture' || key === 'pictures') return;
+          if (value !== undefined && value !== null) data.append(key, value);
+        });
+        selectedPictures.forEach(({ file }) => data.append('pictures', file));
+        removedPictureUrls.forEach((imageUrl) => data.append('remove_picture_urls', imageUrl));
+        return data;
+      })(),
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem('token')}`,
+      },
       });
       const result = await response.json();
-      if (!response.ok || !result.success) throw new Error(result.error || 'Erreur lors de la sauvegarde.');
+      if (!response.ok || !result.success) throw new Error(result.error || result.message || 'Erreur lors de la sauvegarde.');
       await onSaved?.();
       onClose();
     } catch (err) {
@@ -87,7 +103,7 @@ export default function TaskModal({ open, mode = 'add', projectId, task, tasks =
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl overflow-hidden">
+      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
         <div className="flex items-center justify-between p-6 border-b">
           <h2 className="text-lg font-bold text-gray-900">{mode === 'edit' ? 'Modifier la tâche' : 'Ajouter une tâche'}</h2>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
@@ -95,7 +111,7 @@ export default function TaskModal({ open, mode = 'add', projectId, task, tasks =
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-6 space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-1 md:col-span-2">
               <label className={labelCls}>Nom de la tâche</label>
@@ -178,6 +194,52 @@ export default function TaskModal({ open, mode = 'add', projectId, task, tasks =
           <div className="space-y-1">
             <label className={labelCls}>Notes</label>
             <textarea className={`${inputCls} h-20 resize-none`} value={form.notes || ''} onChange={(e) => setValue('notes', e.target.value)} />
+          </div>
+
+          <div className="space-y-2">
+            <label className={labelCls}>Picture / Image</label>
+            <input type="file" multiple accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" className={inputCls}
+              onChange={(e) => {
+                const files = Array.from(e.target.files || []);
+                const remaining = 10 - selectedPictures.length - existingPictures.filter((url) => !removedPictureUrls.includes(url)).length;
+                const accepted = [];
+                let validationError = '';
+                files.forEach((file) => {
+                  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+                    validationError = 'Veuillez sélectionner uniquement des images JPG, JPEG, PNG ou WEBP.';
+                  } else if (file.size > 5 * 1024 * 1024) {
+                    validationError = 'Chaque image doit faire au maximum 5 Mo.';
+                  } else {
+                    accepted.push({ file, preview: URL.createObjectURL(file) });
+                  }
+                });
+                const addable = accepted.slice(0, Math.max(remaining, 0));
+                accepted.slice(addable.length).forEach(({ preview }) => URL.revokeObjectURL(preview));
+                if (accepted.length > addable.length) validationError = 'Vous pouvez joindre au maximum 10 images par tâche.';
+                setSelectedPictures((previous) => [...previous, ...addable]);
+                setError(validationError);
+                e.target.value = '';
+              }} />
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {existingPictures
+                .filter((imageUrl) => !removedPictureUrls.includes(imageUrl))
+                .map((imageUrl) => (
+                  <div key={imageUrl} className="relative">
+                    <img src={`http://localhost:5000${imageUrl}`} alt="Image de la tâche" className="h-20 w-full rounded-lg border object-cover" />
+                    <button type="button" aria-label="Supprimer cette image" onClick={() => setRemovedPictureUrls((current) => [...current, imageUrl])} className="absolute right-1 top-1 rounded-full bg-white/90 px-2 py-1 text-xs font-bold text-red-600 shadow">×</button>
+                  </div>
+                ))}
+              {selectedPictures.map(({ file, preview }, index) => (
+                <div key={`${file.name}-${file.lastModified}-${index}`} className="relative">
+                  <img src={preview} alt={`Aperçu ${file.name}`} className="h-20 w-full rounded-lg border object-cover" />
+                  <button type="button" aria-label={`Supprimer ${file.name}`} onClick={() => {
+                    URL.revokeObjectURL(preview);
+                    setSelectedPictures((current) => current.filter((_, itemIndex) => itemIndex !== index));
+                  }} className="absolute right-1 top-1 rounded-full bg-white/90 px-2 py-1 text-xs font-bold text-red-600 shadow">×</button>
+                  <p className="truncate text-xs text-gray-500">{file.name}</p>
+                </div>
+              ))}
+            </div>
           </div>
 
           {error && <p className="text-xs text-red-500 font-semibold">{error}</p>}

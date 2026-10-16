@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState, useRef } from 'react';
 import SideBar from '../components/SideBar';
-import { NewProject } from '../components/NewProject';
+import { NewProject } from '../components/newProject';
 import ProjectDetails from '../components/ProjectDetails';
 import ImportModal from '../components/ImportModal';
 
