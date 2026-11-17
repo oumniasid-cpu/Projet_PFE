@@ -1,6 +1,16 @@
 const express = require('express');
 const router = express.Router();
-const { login, register, updateProfile, getProfile, changePassword,updateNotificationPrefs, deleteAccount } = require('../controllers/authController');
+const {
+	login,
+	register,
+	updateProfile,
+	getProfile,
+	changePassword,
+	updateNotificationPrefs,
+	deleteAccount,
+	requestPasswordReset,
+	resetPasswordWithCode,
+} = require('../controllers/authController');
 
 // Même middleware partagé que le reste de l'app (tasks.js, dashboard.js,
 // projects.js...) — plus de duplication locale de jwt.verify().
@@ -11,6 +21,8 @@ router.post('/register', register);
 
 // POST /api/auth/login
 router.post('/login', login);
+router.post('/forgot-password', requestPasswordReset);
+router.post('/reset-password', resetPasswordWithCode);
 
 // PUT /api/auth/profile
 router.put('/profile', authenticateToken, updateProfile);

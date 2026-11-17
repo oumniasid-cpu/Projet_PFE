@@ -1,59 +1,89 @@
-import React, { useState } from 'react';
-import Logo from '../assets/Logo.png'; // Imported as 'Logo'
+import { useState } from 'react';
+import { Link } from 'react-router-dom';
+import Logo from '../assets/Logo.png';
+
+const NAV_LINKS = [
+  { label: 'Fonctionnalités', href: '/#fonctionnalites' },
+  { label: 'Tarifs', href: '/#tarifs' },
+  { label: 'Impact', href: '/#impact' },
+  { label: 'Contact', href: '/#contact' },
+  { label: 'À propos', to: '/about' },
+];
+
+const NavigationItem = ({ label, href, to, onClick, className }) => {
+  if (to) {
+    return (
+      <Link to={to} onClick={onClick} className={className}>
+        {label}
+      </Link>
+    );
+  }
+
+  return (
+    <a href={href} onClick={onClick} className={className}>
+      {label}
+    </a>
+  );
+};
 
 const Header = () => {
   const [isOpen, setIsOpen] = useState(false);
 
+  const closeMenu = () => setIsOpen(false);
+
   return (
-    <nav className="w-full bg-white border-b border-gray-100 px-6 py-4">
+    <nav
+      className="w-full bg-white border-b border-gray-100 px-6 py-4"
+      aria-label="Navigation principale"
+    >
       <div className="max-w-7xl mx-auto flex items-center justify-between">
-        
         {/* Logo Section */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center justify-center">
-            <img 
-              src={Logo} // Using the correct variable name here
-              alt="ConstruX Logo" 
-              className="h-10 w-auto object-contain" 
-            />
-            <span className="ml-3 text-2xl font-bold text-slate-800 tracking-tight">
-              BuildTrack
-            </span>
-          </div>
-        </div>
+        <Link to="/" className="flex items-center gap-3" aria-label="BuildTrack - Accueil">
+          <img src={Logo} alt="Logo BuildTrack" className="h-10 w-auto object-contain" />
+          <span className="text-2xl font-bold text-slate-800 tracking-tight">
+            BuildTrack
+          </span>
+        </Link>
 
-        {/* Navigation Links - Centered on Desktop */}
+        {/* Navigation Links - Desktop */}
         <div className="hidden md:flex items-center space-x-10">
-          <a href="#features" className="text-slate-600 font-medium hover:text-slate-900 transition-colors">
-            Fonctionnalités
-          </a>
-          <a href="#impact" className="text-slate-600 font-medium hover:text-slate-900 transition-colors">
-            Tarifs
-          </a>
-          <a href="#impact" className="text-slate-600 font-medium hover:text-slate-900 transition-colors">
-            Impact
-          </a>
-          <a href="#impact" className="text-slate-600 font-medium hover:text-slate-900 transition-colors">
-            Contact
-          </a>
-          <a href="#about" className="text-slate-600 font-medium hover:text-slate-900 transition-colors">
-            À propos
-          </a>
+          {NAV_LINKS.map(({ label, href, to }) => (
+            <NavigationItem
+              key={to ?? href}
+              label={label}
+              href={href}
+              to={to}
+              className="text-slate-600 font-medium hover:text-slate-900 transition-colors"
+            />
+          ))}
         </div>
 
-        {/* Action Button */}
+        {/* Action Button - Desktop */}
         <div className="hidden md:flex items-center">
-          <button className="bg-[#003366] text-white px-8 py-2.5 rounded-full font-semibold hover:bg-[#002244] transition-all shadow-sm">
+          <Link
+            to="/login"
+            className="inline-flex items-center bg-[#003366] text-white px-8 py-2.5 rounded-full font-semibold hover:bg-[#002244] transition-all shadow-sm"
+          >
             Connexion
-          </button>
+          </Link>
         </div>
 
         {/* Mobile Menu Toggle */}
-        <button 
+        <button
+          type="button"
           className="md:hidden text-slate-600 p-2"
-          onClick={() => setIsOpen(!isOpen)}
+          onClick={() => setIsOpen((prev) => !prev)}
+          aria-label={isOpen ? 'Fermer le menu' : 'Ouvrir le menu'}
+          aria-expanded={isOpen}
+          aria-controls="mobile-menu"
         >
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg
+            className="w-6 h-6"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
             {isOpen ? (
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
             ) : (
@@ -63,15 +93,29 @@ const Header = () => {
         </button>
       </div>
 
-      {/* Optional: Mobile Menu Dropdown */}
+      {/* Mobile Menu Dropdown */}
       {isOpen && (
-        <div className="md:hidden mt-4 pb-4 space-y-4 flex flex-col items-center border-t border-gray-100 pt-4">
-          <a href="#features" className="text-slate-600 font-medium">Fonctionnalités</a>
-          <a href="#impact" className="text-slate-600 font-medium">Impact</a>
-          <a href="#about" className="text-slate-600 font-medium">À propos</a>
-          <button className="bg-[#003366] text-white px-8 py-2 rounded-lg w-full max-w-50 ">
+        <div
+          id="mobile-menu"
+          className="md:hidden mt-4 pb-4 space-y-4 flex flex-col items-center border-t border-gray-100 pt-4"
+        >
+          {NAV_LINKS.map(({ label, href, to }) => (
+            <NavigationItem
+              key={to ?? href}
+              label={label}
+              href={href}
+              to={to}
+              onClick={closeMenu}
+              className="text-slate-600 font-medium"
+            />
+          ))}
+          <Link
+            to="/login"
+            onClick={closeMenu}
+            className="inline-flex items-center justify-center bg-[#003366] text-white px-8 py-2 rounded-lg w-full max-w-50"
+          >
             Connexion
-          </button>
+          </Link>
         </div>
       )}
     </nav>

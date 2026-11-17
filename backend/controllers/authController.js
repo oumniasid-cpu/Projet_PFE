@@ -1,6 +1,147 @@
 const pool = require('../db');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { createHmac, randomInt, timingSafeEqual } = require('crypto');
+const { envoyerCodeReinitialisation } = require('../services/emailService');
+
+const RESET_CODE_TTL_MINUTES = 10;
+const RESET_CODE_MAX_ATTEMPTS = 5;
+const RESET_CODE_RESPONSE = 'Si cette adresse correspond à un compte, un code de confirmation a été envoyé.';
+
+function hashResetCode(userId, code) {
+  const secret = process.env.PASSWORD_RESET_SECRET || process.env.JWT_SECRET;
+  if (!secret) throw new Error('PASSWORD_RESET_SECRET ou JWT_SECRET doit être configuré.');
+
+  return createHmac('sha256', secret).update(`${userId}:${code}`).digest('hex');
+}
+
+function resetCodeMatches(userId, code, storedHash) {
+  const actualHash = Buffer.from(hashResetCode(userId, code), 'hex');
+  const expectedHash = Buffer.from(storedHash, 'hex');
+  return actualHash.length === expectedHash.length && timingSafeEqual(actualHash, expectedHash);
+}
+
+exports.requestPasswordReset = async (req, res) => {
+  const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  if (!email) return res.status(400).json({ message: 'Veuillez saisir une adresse e-mail valide.' });
+
+  try {
+    const userResult = await pool.query(
+      'SELECT id, email FROM users WHERE LOWER(email) = $1',
+      [email]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.json({ message: RESET_CODE_RESPONSE });
+    }
+
+    const user = userResult.rows[0];
+    const recentRequest = await pool.query(
+      `SELECT created_at FROM password_reset_codes
+       WHERE user_id = $1 AND created_at > NOW() - INTERVAL '1 minute'`,
+      [user.id]
+    );
+
+    if (recentRequest.rows.length > 0) {
+      return res.json({ message: RESET_CODE_RESPONSE });
+    }
+
+    const code = String(randomInt(100000, 1000000));
+    const codeHash = hashResetCode(user.id, code);
+
+    await pool.query(
+      `INSERT INTO password_reset_codes (user_id, code_hash, expires_at, attempts, created_at)
+       VALUES ($1, $2, NOW() + ($3 * INTERVAL '1 minute'), 0, NOW())
+       ON CONFLICT (user_id) DO UPDATE
+       SET code_hash = EXCLUDED.code_hash,
+           expires_at = EXCLUDED.expires_at,
+           attempts = 0,
+           created_at = NOW()`,
+      [user.id, codeHash, RESET_CODE_TTL_MINUTES]
+    );
+
+    try {
+      await envoyerCodeReinitialisation(user.email, code);
+    } catch (error) {
+      await pool.query(
+        'DELETE FROM password_reset_codes WHERE user_id = $1 AND code_hash = $2',
+        [user.id, codeHash]
+      );
+      console.error('Échec de l’envoi du code de réinitialisation:', error);
+      return res.status(202).json({ message: RESET_CODE_RESPONSE });
+    }
+
+    return res.json({ message: RESET_CODE_RESPONSE });
+  } catch (error) {
+    console.error('Erreur lors de la demande de réinitialisation du mot de passe:', error);
+    return res.status(500).json({ message: "Impossible d'envoyer le code pour le moment." });
+  }
+};
+
+exports.resetPasswordWithCode = async (req, res) => {
+  const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  const code = typeof req.body.code === 'string' ? req.body.code.trim() : '';
+  const newPassword = req.body.newPassword;
+
+  if (!email || !/^\d{6}$/.test(code) || typeof newPassword !== 'string' || newPassword.length < 6) {
+    return res.status(400).json({
+      message: 'Saisissez le code à 6 chiffres et un nouveau mot de passe de 6 caractères minimum.',
+    });
+  }
+
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query('BEGIN');
+
+    const userResult = await client.query(
+      'SELECT id FROM users WHERE LOWER(email) = $1 FOR UPDATE',
+      [email]
+    );
+    const user = userResult.rows[0];
+    if (!user) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ message: 'Code invalide ou expiré.' });
+    }
+
+    const resetResult = await client.query(
+      'SELECT code_hash, expires_at, attempts FROM password_reset_codes WHERE user_id = $1 FOR UPDATE',
+      [user.id]
+    );
+    const resetRequest = resetResult.rows[0];
+
+    if (!resetRequest || new Date(resetRequest.expires_at) <= new Date() || resetRequest.attempts >= RESET_CODE_MAX_ATTEMPTS) {
+      await client.query('DELETE FROM password_reset_codes WHERE user_id = $1', [user.id]);
+      await client.query('COMMIT');
+      return res.status(400).json({ message: 'Code invalide ou expiré.' });
+    }
+
+    if (!resetCodeMatches(user.id, code, resetRequest.code_hash)) {
+      await client.query(
+        'UPDATE password_reset_codes SET attempts = attempts + 1 WHERE user_id = $1',
+        [user.id]
+      );
+      await client.query('COMMIT');
+      return res.status(400).json({ message: 'Code invalide ou expiré.' });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await client.query(
+      'UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+      [hashedPassword, user.id]
+    );
+    await client.query('DELETE FROM password_reset_codes WHERE user_id = $1', [user.id]);
+    await client.query('COMMIT');
+
+    return res.json({ message: 'Mot de passe réinitialisé avec succès. Vous pouvez vous connecter.' });
+  } catch (error) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    console.error('Erreur lors de la réinitialisation du mot de passe:', error);
+    return res.status(500).json({ message: 'Impossible de réinitialiser le mot de passe pour le moment.' });
+  } finally {
+    client?.release();
+  }
+};
 
 exports.register = async (req, res) => {
   const { email, password, name } = req.body;  // ← Ajouté name

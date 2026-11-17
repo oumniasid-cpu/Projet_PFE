@@ -19,12 +19,12 @@ const Card = () => {
 
           <div className="flex flex-col sm:flex-row gap-4">
             {/* Primary Action */}
-            <button className="bg-[#E67E22] hover:bg-[#D35400] text-white px-10 py-4 rounded-full font-bold transition-all shadow-lg hover:shadow-orange-200 active:scale-95">
+            <a href="#contact" className="bg-[#E67E22] hover:bg-[#D35400] text-white px-10 py-4 rounded-full font-bold transition-all shadow-lg hover:shadow-orange-200 active:scale-95 text-center">
               Demander une démo
-            </button>
+            </a>
             
             {/* Secondary Action */}
-            <Link to="/Login"
+            <Link to="/login"
               className="inline-block text-center border-2 border-[#1A365D] text-[#1A365D] hover:bg-[#1A365D] hover:text-white px-10 py-4 rounded-full font-bold transition-all active:scale-95">
               Se connecter
             </Link>

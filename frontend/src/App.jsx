@@ -1,20 +1,22 @@
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import LandingPage from "./pages/Landing";
-import LoginPage from "./pages/Login";
-import DashboardPage from "./pages/Dashboard";
-import ProjectNews from "./pages/ProjectNews";
-import RegisterPage from "./pages/Register";
-import Project from "./pages/Projects";
+import { Route, BrowserRouter as Router, Routes } from "react-router-dom";
 import UserManagement from "./AdminPages/UserManagement";
-import Settings from "./pages/Settings";
 import DailyReports from "./components/DailyReports";
 import PrivateRoute from "./components/PrivateRoute";
+import AboutPage from "./pages/AboutPage";
+import DashboardPage from "./pages/Dashboard";
+import LandingPage from "./pages/Landing";
+import LoginPage from "./pages/Login";
 import NotificationsPage from "./pages/NotificationsPage";
+import ProjectNews from "./pages/ProjectNews";
+import Project from "./pages/Projects";
+import RegisterPage from "./pages/Register";
+import Settings from "./pages/Settings";
 export default function App() {
   return (
     <Router>
       <Routes>
         <Route path="/" element={<LandingPage />} />
+        <Route path="/about" element={<AboutPage />} />
         {/* Corrigé : "/Login" -> "/login" (minuscule), pour matcher tous les
             navigate('/login') utilisés ailleurs (SideBar, Dashboard, Register,
             Login lui-même). React Router est sensible à la casse par défaut :

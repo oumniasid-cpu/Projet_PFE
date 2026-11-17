@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const pool = require('../db');
 const authenticateToken = require('../middleware/authMiddleware');
+const { logActivity } = require('./notifications');
 
 const router = express.Router();
 const MAX_TASK_IMAGES = 10;
@@ -417,6 +418,18 @@ router.patch('/tasks/:task_id', authenticateToken, canManageTasks, uploadTaskIma
     }
     await updateProjectActualCost(client, updated.rows[0].project_id);
     await client.query('COMMIT');
+    await logActivity({
+      actor: req.user,
+      projectId: updated.rows[0].project_id,
+      taskId: req.params.task_id,
+      action: 'task_updated',
+      summary: `La tâche "${updated.rows[0].name || updated.rows[0].title || 'sans nom'}" a été modifiée.`,
+      metadata: {
+        fields: uniqueEntries.map(([key]) => key),
+        added_images: uploadedFiles.length,
+        removed_images: removedRows.rows.length,
+      },
+    });
     await Promise.all(removedRows.rows.map(({ image_url }) => fs.promises.unlink(path.join(__dirname, '..', image_url.replace(/^\//, ''))).catch(() => {})));
     const { rows: pictures } = await pool.query(
       `SELECT image_url FROM (
